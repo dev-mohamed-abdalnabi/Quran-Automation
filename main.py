@@ -14,9 +14,10 @@ AUDIO_EDITION = 'ar.alafasy'
 FONT_PATH = "ArabicFont.ttf" 
 
 def process_ar(t):
-    # النص العربي المظبوط في جيت هب
+    # التعديل الذهبي لظهور النص صحيحاً في بيئة Linux/GitHub
     reshaped = arabic_reshaper.reshape(t)
-    return get_display(reshaped)
+    bidi_text = get_display(reshaped)
+    return bidi_text
 
 def youtube_authenticate():
     TOKEN_B64 = os.environ.get("TOKEN_BASE64")
@@ -25,13 +26,13 @@ def youtube_authenticate():
     return build('youtube', 'v3', credentials=creds)
 
 def build_shorts_video():
-    print("🎬 [1/4] جاري تحضير موارد فيديو Shorts...")
+    print("🚀 بدء المهمة: تحضير فيديو Shorts...")
     s_id = random.randint(1, 114)
     res = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
     s_name = res['name']
     
-    # اختيار مقطع قصير (حوالي 4 آيات)
-    ayahs_segment = res['ayahs'][:4] 
+    # اختيار عدد آيات محدود لضمان وقت الشورتس
+    ayahs_segment = res['ayahs'][:3] 
     audio_clips = []
     text_parts = []
     
@@ -42,60 +43,64 @@ def build_shorts_video():
         text_parts.append(a['text'])
 
     final_audio = mp.concatenate_audioclips(audio_clips)
-    dur = min(58, final_audio.duration)
+    # إجبار المدة تكون شورتس (بين 15 لـ 55 ثانية)
+    dur = min(50, final_audio.duration)
+    final_audio = final_audio.subclip(0, dur)
     full_text = " ۞ ".join(text_parts)
 
-    # خلفية Pexels
+    # خلفية Pexels راسية
     headers = {'Authorization': PEXELS_API_KEY}
-    v_res = requests.get(f'https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=10', headers=headers).json()
+    v_res = requests.get(f'https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=15', headers=headers).json()
     v_url = random.choice(v_res['videos'])['video_files'][0]['link']
     with open("bg_v.mp4", "wb") as f: f.write(requests.get(v_url).content)
 
-    print(f"⚙️ [2/4] جاري تصميم الجرافيك لـ {s_name}...")
-    bg = mp.VideoFileClip("bg_v.mp4").resize(height=1280).crop(x1=0, y1=0, width=720, height=1280).loop(duration=dur)
-    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.4)
+    print(f"🎬 جاري معالجة فيديو سورة {s_name}...")
+    bg = mp.VideoFileClip("bg_v.mp4").resize(height=1280).crop(x1=0, y1=0, width=720, height=1280).set_duration(dur)
+    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.5)
 
-    # تصميم البطاقة
+    # الجرافيك
     ui_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
     draw = ImageDraw.Draw(ui_canvas)
-    draw.rounded_rectangle([60, 240, 660, 1040], radius=40, fill=(0,0,0,160), outline=(255,215,0,150), width=3)
-    font_s = ImageFont.truetype(FONT_PATH, 80)
-    draw.text((360, 180), process_ar(s_name), font=font_s, fill="#FFD700", anchor="mm")
+    draw.rounded_rectangle([60, 300, 660, 1000], radius=40, fill=(0,0,0,180))
+    
+    font_s = ImageFont.truetype(FONT_PATH, 85)
+    draw.text((360, 220), process_ar(s_name), font=font_s, fill="#FFD700", anchor="mm")
     ui_clip = mp.ImageClip(np.array(ui_canvas)).set_duration(dur)
 
-    # النص المتحرك
-    lines = textwrap.wrap(full_text, width=25)
-    line_h = 100
+    # النص
+    lines = textwrap.wrap(full_text, width=28)
+    line_h = 95
     canvas_h = (len(lines) + 2) * line_h
     txt_img = Image.new('RGBA', (600, canvas_h), (0, 0, 0, 0))
     d_t = ImageDraw.Draw(txt_img)
-    font_a = ImageFont.truetype(FONT_PATH, 45)
+    font_a = ImageFont.truetype(FONT_PATH, 48)
     for i, line in enumerate(lines):
         d_t.text((300, i*line_h + 100), process_ar(line), font=font_a, fill="white", anchor="mm")
     
     txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
-    moving_txt = txt_clip.set_position(lambda t: ('center', 800 - (t * (canvas_h / dur))))
-    text_area = mp.CompositeVideoClip([moving_txt], size=(720, 1280)).crop(y1=260, y2=1020, x1=70, x2=650).set_position(('center', 260))
+    # حركة النص
+    moving_txt = txt_clip.set_position(lambda t: ('center', 900 - (t * (canvas_h / dur))))
+    text_area = mp.CompositeVideoClip([moving_txt], size=(720, 1280)).crop(y1=320, y2=980, x1=70, x2=650).set_position(('center', 320))
 
-    # --- الرندر مع شريط تقدم نظيف ---
-    print(f"🚀 [3/4] جاري الرندر النهائي ( Rendering )...")
     final = mp.CompositeVideoClip([bg, dark, text_area, ui_clip]).set_audio(final_audio)
     
-    # استخدام logger='bar' يعطي شريط تقدم سطر واحد يتحدث تلقائياً
-    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", logger='bar')
+    # أهم سطر: منع تهنيج الكونسول (logger=None)
+    print("⏳ جاري الرندر (Rendering)... يرجى الانتظار دقيقتين")
+    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", logger=None, threads=4)
 
-    print("🌐 [4/4] جاري الرفع لليوتيوب...")
-    try:
-        youtube = youtube_authenticate()
-        body = {
-            'snippet': {'title': f'تلاوة خاشعة - {s_name} #shorts #quran', 'description': 'تلاوة يومية هادئة', 'categoryId': '22'},
-            'status': {'privacyStatus': 'public'}
-        }
-        media = MediaFileUpload("final.mp4", chunksize=-1, resumable=True)
-        youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
-        print(f"✅ تم الرفع بنجاح سورة {s_name}!")
-    except Exception as e:
-        print(f"❌ خطأ في الرفع: {e}")
+    print("📡 جاري الرفع لليوتيوب كـ Shorts...")
+    youtube = youtube_authenticate()
+    body = {
+        'snippet': {
+            'title': f'تلاوة خاشعة - {s_name} #shorts #quran',
+            'description': f'سورة {s_name} بصوت الشيخ مشاري العفاسي',
+            'categoryId': '22'
+        },
+        'status': {'privacyStatus': 'public'}
+    }
+    media = MediaFileUpload("final.mp4", chunksize=-1, resumable=True)
+    youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
+    print(f"✅ مبروك! الفيديو اتنشر: سورة {s_name}")
 
 if __name__ == "__main__":
     build_shorts_video()
