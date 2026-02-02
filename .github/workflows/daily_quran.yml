@@ -1,0 +1,36 @@
+name: Daily Quran Auto
+
+on:
+  schedule:
+    # سيقوم بالعمل يومياً الساعة 11 صباحاً بتوقيت جرينتش (حوالي 1 أو 2 ظهراً بتوقيتك)
+    - cron: '0 11 * * *'
+  workflow_dispatch: # زر للتشغيل اليدوي للتجربة
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+      
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+        
+    - name: Install FFmpeg
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+
+    - name: Install Libraries
+      run: |
+        pip install -r requirements.txt
+
+    - name: Run Script
+      env:
+        TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
+        CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      run: python main.py
