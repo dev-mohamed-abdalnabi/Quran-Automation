@@ -1,0 +1,26 @@
+name: Daily Quran Auto
+
+on:
+  schedule:
+    - cron: '0 11 * * *'
+  workflow_dispatch: # هذا الزر هو اللي هيظهر لنا عشان نجرب يدوياً
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+    - name: Install FFmpeg
+      run: sudo apt-get update && sudo apt-get install -y ffmpeg
+    - name: Install Libraries
+      run: pip install moviepy==1.0.3 arabic-reshaper python-bidi proglog google-api-python-client google-auth-oauthlib requests numpy pillow
+    - name: Run Script
+      env:
+        TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
+        CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      run: python main.py
