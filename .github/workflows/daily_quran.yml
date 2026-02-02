@@ -2,8 +2,8 @@ name: Daily Quran Auto
 
 on:
   schedule:
-    # الساعة 9 بتوقيت جرينتش تعادل 11 صباحاً بتوقيت مصر
-    - cron: '0 9 * * *'
+    # الساعة 11 بتوقيت جرينتش تعادل 1 ظهرًا بتوقيت مصر
+    - cron: '0 11 * * *'
   workflow_dispatch:
 
 jobs:
@@ -26,7 +26,8 @@ jobs:
       run: |
         pip install --upgrade pip
         pip install moviepy==1.0.3
-        pip install arabic-reshaper python-bidi proglog google-api-python-client google-auth-oauthlib requests numpy pillow
+        pip install Pillow==9.5.0
+        pip install arabic-reshaper python-bidi proglog google-api-python-client google-auth-oauthlib requests numpy
 
     - name: Run Script
       env:
