@@ -2,36 +2,35 @@ name: Daily Quran Auto
 
 on:
   schedule:
-    # الساعة 11 بتوقيت جرينتش تعادل 1 ظهرًا بتوقيت مصر
+    # 11:00 UTC = 1:00 PM بتوقيت مصر
     - cron: '0 11 * * *'
   workflow_dispatch:
 
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-      
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-        
-    - name: Install FFmpeg
-      run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Install Libraries
-      run: |
-        pip install --upgrade pip
-        pip install moviepy==1.0.3
-        pip install Pillow==9.5.0
-        pip install arabic-reshaper python-bidi proglog google-api-python-client google-auth-oauthlib requests numpy
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-    - name: Run Script
-      env:
-        TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
-        CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-      run: python main.py
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Libraries
+        run: |
+          pip install --upgrade pip
+          pip install moviepy==1.0.3
+          pip install Pillow==9.5.0
+          pip install arabic-reshaper python-bidi proglog google-api-python-client google-auth-oauthlib requests numpy
+
+      - name: Run Script
+        env:
+          TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: python main.py
