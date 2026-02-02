@@ -2,14 +2,14 @@ name: Daily Quran Auto
 
 on:
   schedule:
-    # توقيت جرينتش 11:00 يعادل 1:00 ظهراً بتوقيت مصر
-    - cron: '0 11 * * *'
-  workflow_dispatch: # يتيح لك تشغيل البوت يدوياً في أي وقت
+    # 12:00 UTC = 2:00 PM بتوقيت مصر
+    # خليناها 11:55 عشان نتجنب زحمة السيرفرات ونضمن يبدأ 2:00
+    - cron: '55 11 * * *'
+  workflow_dispatch:
 
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
@@ -20,22 +20,15 @@ jobs:
         python-version: '3.9'
 
     - name: Install FFmpeg
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg
+      run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
     - name: Install Libraries
       run: |
         pip install --upgrade pip
-        # إصدارات محددة لضمان عمل الجرافيك والخطوط بدون أخطاء
-        pip install moviepy==1.0.3 
-        pip install Pillow==9.5.0 
-        pip install arabic-reshaper python-bidi requests numpy
-        pip install google-api-python-client google-auth-oauthlib
+        pip install moviepy==1.0.3 Pillow==9.5.0 arabic-reshaper python-bidi requests numpy google-api-python-client google-auth-oauthlib
 
     - name: Run Script
       env:
-        # تأكد أن هذه الأسماء مطابقة لما وضعته في GitHub Secrets
         TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
         PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
       run: python main.py
