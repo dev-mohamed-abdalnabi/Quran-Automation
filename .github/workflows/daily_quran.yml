@@ -2,10 +2,16 @@ name: Daily Quran Auto
 
 on:
   schedule:
-    - cron: '*/15 * * * *'   # كل 15 دقيقة
+    # التوقيت: يبدأ الساعة 15:17 UTC (يعني 5:17 م بتوقيت مصر)
+    # ويكرر المحاولة في الدقيقة 17 و 32 و 47 من كل ساعة
+    # بداية من الساعة 15 (3 عصراً UTC) لحد 23 (11 مساءً UTC)
+    - cron: '17,32,47 15-23 * * *'
   workflow_dispatch:
 
-# يمنع تشغيل أكتر من Run في نفس الوقت
+# صلاحيات الكتابة عشان يقدر يحفظ ملف الـ Log
+permissions:
+  contents: write
+
 concurrency:
   group: daily-quran-auto
   cancel-in-progress: false
@@ -13,13 +19,12 @@ concurrency:
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
-    continue-on-error: true
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          persist-credentials: true
+          persist-credentials: true # مهم عشان يقدر يعمل Push تاني
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -41,13 +46,15 @@ jobs:
         run: |
           python main.py
 
+      # الخطوة دي هي اللي بتحفظ إن الفيديو اترفع عشان ميتكررش
       - name: Commit daily log if updated
+        if: success() # تشتغل بس لو السكريبت نجح
         run: |
           if git status --porcelain | grep daily_log.txt; then
-            git config user.name "github-actions"
-            git config user.email "actions@github.com"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add daily_log.txt
-            git commit -m "Update daily upload log"
+            git commit -m "Update daily upload log [skip ci]"
             git push
           else
             echo "No log changes to commit"
