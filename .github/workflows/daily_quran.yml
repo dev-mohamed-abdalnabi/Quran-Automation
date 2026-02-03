@@ -2,46 +2,53 @@ name: Daily Quran Auto
 
 on:
   schedule:
-    # 03:00 UTC = 5:00 AM بتوقيت مصر (موعد الفجر)
-    - cron: '0 3 * * *'
+    - cron: '*/15 * * * *'   # كل 15 دقيقة
   workflow_dispatch:
-  repository_dispatch:
-    types: [start_bot]
+
+# يمنع تشغيل أكتر من Run في نفس الوقت
+concurrency:
+  group: daily-quran-auto
+  cancel-in-progress: false
 
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
-    # إذا فشل السيرفر، يحاول مرة تانية تلقائياً
     continue-on-error: true
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: true
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-    - name: Install FFmpeg
-      run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-    - name: Cache Pip
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+      - name: Install Libraries
+        run: |
+          pip install --upgrade pip
+          pip install moviepy==1.0.3 Pillow==9.5.0 arabic-reshaper python-bidi requests numpy google-api-python-client google-auth-oauthlib
 
-    - name: Install Libraries
-      run: |
-        pip install --upgrade pip
-        pip install moviepy==1.0.3 Pillow==9.5.0 arabic-reshaper python-bidi requests numpy google-api-python-client google-auth-oauthlib
+      - name: Run Bot
+        env:
+          TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: |
+          python main.py
 
-    - name: Run Script
-      env:
-        TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
-        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-      # إضافة محاولة إعادة التشغيل في حالة الخطأ (Retry 3 times)
-      run: |
-        for i in {1..3}; do
-          python main.py && break || sleep 60;
-        done
+      - name: Commit daily log if updated
+        run: |
+          if git status --porcelain | grep daily_log.txt; then
+            git config user.name "github-actions"
+            git config user.email "actions@github.com"
+            git add daily_log.txt
+            git commit -m "Update daily upload log"
+            git push
+          else
+            echo "No log changes to commit"
+          fi
