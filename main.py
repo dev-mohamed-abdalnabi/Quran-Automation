@@ -30,7 +30,6 @@ PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 AUDIO_EDITION = 'ar.alafasy'
 FONT_PATH = "ArabicFont.ttf"
 
-# معالجة العربي (الكلاسيكية المضمونة)
 def process_ar(t):
     try:
         reshaped = arabic_reshaper.reshape(t)
@@ -53,41 +52,36 @@ def build_shorts_video():
     s_name = res['name']
     all_ayahs = res['ayahs']
 
-    # --- التعديل 1: تجميع الآيات بناءً على الوقت مش العدد ---
+    # --- منطق تجميع الآيات (عشان الفيديو يبقى طويل) ---
     audio_clips = []
     text_parts = []
     current_duration = 0
-    TARGET_DURATION = 35  # الهدف: الفيديو يكون حوالي 35 ثانية أو أكثر
+    TARGET_DURATION = 35 
 
-    print(f"📖 تم اختيار سورة {s_name}. جاري تجميع الآيات لتناسب الوقت...")
+    print(f"📖 تم اختيار سورة {s_name}. جاري تجميع الآيات...")
 
     for i, a in enumerate(all_ayahs):
-        # بنحمل الآية
         f_path = f"temp_{i}.mp3"
         with open(f_path, 'wb') as f:
             f.write(requests.get(a['audio']).content)
         
         clip = mp.AudioFileClip(f_path)
-        
-        # نضيفها للقائمة
         audio_clips.append(clip)
         text_parts.append(a['text'])
         current_duration += clip.duration
 
-        # لو وصلنا للوقت المطلوب أو عدينا 55 ثانية (عشان الشورتس آخره 60) نوقف
         if current_duration >= TARGET_DURATION:
-            if current_duration > 58: # لو زاد أوي نشيل آخر آية عشان منعديش الدقيقة
+            if current_duration > 58: 
                 audio_clips.pop()
                 text_parts.pop()
             break
     
     final_audio = mp.concatenate_audioclips(audio_clips)
-    # التأكيد النهائي إن المدة لا تتخطى 59 ثانية
     dur = min(59, final_audio.duration)
     final_audio = final_audio.subclip(0, dur)
     
     full_text = " ۞ ".join(text_parts)
-    print(f"⏱️ مدة الصوت النهائية: {dur:.2f} ثانية")
+    print(f"⏱️ مدة الفيديو النهائية: {dur:.2f} ثانية")
 
     # الخلفية
     headers = {'Authorization': PEXELS_API_KEY}
@@ -100,25 +94,20 @@ def build_shorts_video():
     with open("bg_v.mp4", "wb") as f:
         f.write(requests.get(v_url).content)
 
-    print(f"⚙️ [2/4] جاري المونتاج لسورة {s_name}...")
+    print(f"⚙️ [2/4] جاري المونتاج وترتيب الطبقات...")
 
+    # الطبقة 0: الفيديو الخلفي
     bg = mp.VideoFileClip("bg_v.mp4").resize(height=1280).crop(x1=0, y1=0, width=720, height=1280).set_duration(dur)
-    
-    # جعل طبقة التعتيم أغمق قليلاً (0.6 بدل 0.5)
-    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.6)
+    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.4)
 
-    ui_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(ui_canvas)
-    
-    # --- التعديل 2: تغميق المربع الخلفي للنص ---
-    # fill=(0,0,0,220) -> الرقم 220 ده الشفافية (من 0 لـ 255)
-    # كل ما يقرب لـ 255 يبقى أسود خالص، فالكلام الأبيض يظهر أوضح
-    draw.rounded_rectangle([50, 250, 670, 1030], radius=30, fill=(0,0,0,230))
+    # الطبقة 1: المربع الخلفي (Container) - ده اللي كان بيغطي النص
+    box_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
+    box_draw = ImageDraw.Draw(box_canvas)
+    # رجعنا الشفافية لـ 170 (حاجة رايقة)
+    box_draw.rounded_rectangle([50, 250, 670, 1030], radius=30, fill=(0,0,0,170)) 
+    box_clip = mp.ImageClip(np.array(box_canvas)).set_duration(dur)
 
-    font_s = ImageFont.truetype(FONT_PATH, 85)
-    draw.text((360, 200), process_ar(s_name), font=font_s, fill="#FFD700", anchor="mm")
-    ui_clip = mp.ImageClip(np.array(ui_canvas)).set_duration(dur)
-
+    # الطبقة 2: النص المتحرك (Scrolling Text)
     lines = textwrap.wrap(full_text, width=28)
     line_h = 95
     canvas_h = (len(lines) + 2) * line_h
@@ -127,17 +116,28 @@ def build_shorts_video():
     font_a = ImageFont.truetype(FONT_PATH, 48)
 
     for i, line in enumerate(lines):
-        # جعل النص أبيض ناصع
-        d_t.text((300, i*line_h + 100), process_ar(line), font=font_a, fill=(255, 255, 255, 255), anchor="mm")
+        d_t.text((300, i*line_h + 100), process_ar(line), font=font_a, fill="white", anchor="mm")
 
     txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
-    
-    # تعديل سرعة السكرول لتتناسب مع مدة الصوت الجديدة
     moving_txt = txt_clip.set_position(lambda t: ('center', 900 - (t * (canvas_h / (dur + 2)))))
     
-    text_area = mp.CompositeVideoClip([moving_txt], size=(720, 1280)).crop(y1=320, y2=980, x1=70, x2=650).set_position(('center', 320))
+    # Masking للنص عشان يظهر جوه المربع بس
+    text_area = mp.CompositeVideoClip([moving_txt], size=(720, 1280)).crop(y1=300, y2=1000, x1=50, x2=670).set_position(('center', 0))
 
-    final = mp.CompositeVideoClip([bg, dark, text_area, ui_clip]).set_audio(final_audio)
+    # الطبقة 3: العنوان (اسم السورة) - ده فوق الكل
+    title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
+    title_draw = ImageDraw.Draw(title_canvas)
+    font_s = ImageFont.truetype(FONT_PATH, 85)
+    title_draw.text((360, 180), process_ar(s_name), font=font_s, fill="#FFD700", anchor="mm")
+    title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
+
+    # === الترتيب النهائي للطبقات (مهم جداً) ===
+    # 1. الخلفية
+    # 2. التعتيم
+    # 3. المربع (تحت)
+    # 4. النص المتحرك (فوق المربع)
+    # 5. العنوان (فوق خالص)
+    final = mp.CompositeVideoClip([bg, dark, box_clip, text_area, title_clip]).set_audio(final_audio)
 
     print("⏳ [3/4] جاري الرندر النهائي...")
     final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", logger=None, threads=4)
@@ -166,10 +166,10 @@ if __name__ == "__main__":
 
     if is_uploaded_today():
         if event_name == 'workflow_dispatch':
-            print("⚠️ تنبيه: الفيديو اليومي مسجل إنه نزل.")
-            print("🛠️ تشغيل يدوي: جاري إنشاء فيديو إضافي طويل ومحسن...")
+            print("⚠️ تنبيه: الفيديو اليومي مسجل.")
+            print("🛠️ تشغيل يدوي: سيتم إنشاء فيديو بتعديلات الطبقات...")
         else:
-            print("✅ فيديو النهارده نزل خلاص. (Automatic Skip)")
+            print("✅ فيديو النهارده نزل خلاص.")
             sys.exit(0)
     else:
         print("📅 مفيش فيديو نزل النهاردة. جاري العمل...")
@@ -177,7 +177,7 @@ if __name__ == "__main__":
     try:
         build_shorts_video()
         mark_uploaded_today()
-        print("📝 تم تحديث السجل اليومي بنجاح.")
+        print("📝 تمت العملية بنجاح.")
     except Exception as e:
-        print("🔥 حصل خطأ أثناء التنفيذ أو الرفع:", e)
+        print("🔥 خطأ:", e)
         sys.exit(1)
