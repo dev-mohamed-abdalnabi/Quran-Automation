@@ -31,21 +31,16 @@ PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 AUDIO_EDITION = 'ar.alafasy'
 FONT_PATH = "ArabicFont.ttf" 
 
-# --- تعديل جذري لدالة معالجة العربي ---
+# --- معالجة العربي: الطريقة الكلاسيكية (السادة) ---
 def process_ar(text):
     if not text: return ""
     try:
-        # 1. إعدادات متقدمة لتشبيك الحروف (Ligatures) عشان متبقاش مقطعة
-        configuration = {
-            'delete_harakat': False,          # الحفاظ على التشكيل
-            'support_ligatures': True,        # دعم تشبيك الحروف
-            'use_unshaped_instead_of_isolated': True
-        }
-        reshaper = arabic_reshaper.ArabicReshaper(configuration=configuration)
-        reshaped_text = reshaper.reshape(text)
+        # 1. تشبيك الحروف ببعضها (عشان متبقاش مقطعة)
+        reshaped_text = arabic_reshaper.reshape(text)
         
-        # 2. إجبار النص يكون من اليمين لليسار (RTL) عشان الترتيب ميعكسش
-        bidi_text = get_display(reshaped_text, base_dir='R')
+        # 2. قلب ترتيب الحروف للعرض (عشان Pillow بيكتب من الشمال لليمين)
+        # مسحنا أي إعدادات تانية عشان نمنع اللف المزدوج
+        bidi_text = get_display(reshaped_text)
         
         return bidi_text
     except Exception as e:
@@ -99,15 +94,12 @@ def build_shorts_video():
 
     print(f"⚙️ [2/4] جاري المونتاج لسورة {s_name}...")
 
-    # تحضير الخلفية
     bg = mp.VideoFileClip("bg_v.mp4").resize(height=1280).crop(x1=0, y1=0, width=720, height=1280).set_duration(dur)
     dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.5)
 
-    # تحضير الـ UI
     ui_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
     draw = ImageDraw.Draw(ui_canvas)
     
-    # المربع الخلفي
     draw.rounded_rectangle([50, 250, 670, 1030], radius=30, fill=(0,0,0,160))
 
     try:
@@ -117,29 +109,30 @@ def build_shorts_video():
         print("⚠️ خطأ: ملف الخط ArabicFont.ttf غير موجود. تأكد من رفعه.")
         sys.exit(1)
 
-    # كتابة اسم السورة (بالتعديل الجديد)
+    # طباعة تجريبية في الـ Logs عشان نتأكد
+    print(f"DEBUG Text (Original): {s_name}")
+    print(f"DEBUG Text (Processed): {process_ar(s_name)}")
+
+    # كتابة العنوان
     draw.text((360, 180), process_ar(s_name), font=font_s, fill="#FFD700", anchor="mm")
     ui_clip = mp.ImageClip(np.array(ui_canvas)).set_duration(dur)
 
-    # معالجة الآيات
-    lines = textwrap.wrap(full_text, width=35) # وسعنا العرض شوية عشان الكلام ياخد راحته
+    lines = textwrap.wrap(full_text, width=35)
     line_h = 90
     canvas_h = (len(lines) + 3) * line_h
     txt_img = Image.new('RGBA', (620, canvas_h), (0, 0, 0, 0))
     d_t = ImageDraw.Draw(txt_img)
 
     for i, line in enumerate(lines):
-        processed_line = process_ar(line)
-        # anchor='mm' بيحط النص في النص بالضبط
-        d_t.text((310, i*line_h + 50), processed_line, font=font_a, fill="white", anchor="mm")
+        # هنا التعديل: شلنا أي محاذاة ممكن تلخبط
+        d_t.text((310, i*line_h + 50), process_ar(line), font=font_a, fill="white", anchor="mm")
 
     txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
     
-    # حركة النص
     moving_txt = txt_clip.set_position(lambda t: ('center', 950 - (t * (canvas_h / (dur + 5))))) 
     
-    # دمج الطبقات
     text_area = mp.CompositeVideoClip([moving_txt], size=(720, 1280)).crop(y1=260, y2=1020, x1=50, x2=670).set_position(('center', 0))
+
     final = mp.CompositeVideoClip([bg, dark, ui_clip, text_area]).set_audio(final_audio)
 
     print("⏳ [3/4] جاري الرندر النهائي...")
@@ -165,12 +158,13 @@ def build_shorts_video():
 # ================== نقطة الدخول (Entry Point) ==================
 if __name__ == "__main__":
 
-    # فحص نوع التشغيل
+    # جلب نوع الحدث (Schedule vs Dispatch)
     event_name = os.environ.get('GITHUB_EVENT_NAME') 
 
     if is_uploaded_today():
         if event_name == 'workflow_dispatch':
-            print("⚠️ تنبيه: الفيديو اليومي نزل، بس هنكمل عشان ده تشغيل يدوي.")
+            print("⚠️ تنبيه: الفيديو اليومي نزل بالفعل.")
+            print("▶️ تشغيل يدوي: سيتم إنشاء فيديو إضافي للاختبار.")
         else:
             print("✋ الفيديو نزل النهاردة. مفيش شغل دلوقتي.")
             sys.exit(0)
