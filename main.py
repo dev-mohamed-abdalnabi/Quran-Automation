@@ -30,11 +30,14 @@ PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 AUDIO_EDITION = 'ar.alafasy'
 FONT_PATH = "ArabicFont.ttf"
 
-# (تم الحفاظ على دالتك اللي شغالة صح)
+# معالجة العربي (الكلاسيكية المضمونة)
 def process_ar(t):
-    reshaped = arabic_reshaper.reshape(t)
-    bidi_text = get_display(reshaped)
-    return bidi_text[::-1]
+    try:
+        reshaped = arabic_reshaper.reshape(t)
+        bidi_text = get_display(reshaped)
+        return bidi_text[::-1]
+    except:
+        return t
 
 def youtube_authenticate():
     TOKEN_B64 = os.environ.get("TOKEN_BASE64")
@@ -48,23 +51,45 @@ def build_shorts_video():
     s_id = random.randint(1, 114)
     res = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
     s_name = res['name']
+    all_ayahs = res['ayahs']
 
-    ayahs_segment = res['ayahs'][:3]
+    # --- التعديل 1: تجميع الآيات بناءً على الوقت مش العدد ---
     audio_clips = []
     text_parts = []
+    current_duration = 0
+    TARGET_DURATION = 35  # الهدف: الفيديو يكون حوالي 35 ثانية أو أكثر
 
-    for a in ayahs_segment:
-        f_path = f"temp_{a['number']}.mp3"
+    print(f"📖 تم اختيار سورة {s_name}. جاري تجميع الآيات لتناسب الوقت...")
+
+    for i, a in enumerate(all_ayahs):
+        # بنحمل الآية
+        f_path = f"temp_{i}.mp3"
         with open(f_path, 'wb') as f:
             f.write(requests.get(a['audio']).content)
-        audio_clips.append(mp.AudioFileClip(f_path))
+        
+        clip = mp.AudioFileClip(f_path)
+        
+        # نضيفها للقائمة
+        audio_clips.append(clip)
         text_parts.append(a['text'])
+        current_duration += clip.duration
 
+        # لو وصلنا للوقت المطلوب أو عدينا 55 ثانية (عشان الشورتس آخره 60) نوقف
+        if current_duration >= TARGET_DURATION:
+            if current_duration > 58: # لو زاد أوي نشيل آخر آية عشان منعديش الدقيقة
+                audio_clips.pop()
+                text_parts.pop()
+            break
+    
     final_audio = mp.concatenate_audioclips(audio_clips)
-    dur = min(50, final_audio.duration)
+    # التأكيد النهائي إن المدة لا تتخطى 59 ثانية
+    dur = min(59, final_audio.duration)
     final_audio = final_audio.subclip(0, dur)
+    
     full_text = " ۞ ".join(text_parts)
+    print(f"⏱️ مدة الصوت النهائية: {dur:.2f} ثانية")
 
+    # الخلفية
     headers = {'Authorization': PEXELS_API_KEY}
     v_res = requests.get(
         'https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=15',
@@ -78,14 +103,20 @@ def build_shorts_video():
     print(f"⚙️ [2/4] جاري المونتاج لسورة {s_name}...")
 
     bg = mp.VideoFileClip("bg_v.mp4").resize(height=1280).crop(x1=0, y1=0, width=720, height=1280).set_duration(dur)
-    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.5)
+    
+    # جعل طبقة التعتيم أغمق قليلاً (0.6 بدل 0.5)
+    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.6)
 
     ui_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
     draw = ImageDraw.Draw(ui_canvas)
-    draw.rounded_rectangle([60, 300, 660, 1000], radius=40, fill=(0,0,0,180))
+    
+    # --- التعديل 2: تغميق المربع الخلفي للنص ---
+    # fill=(0,0,0,220) -> الرقم 220 ده الشفافية (من 0 لـ 255)
+    # كل ما يقرب لـ 255 يبقى أسود خالص، فالكلام الأبيض يظهر أوضح
+    draw.rounded_rectangle([50, 250, 670, 1030], radius=30, fill=(0,0,0,230))
 
     font_s = ImageFont.truetype(FONT_PATH, 85)
-    draw.text((360, 220), process_ar(s_name), font=font_s, fill="#FFD700", anchor="mm")
+    draw.text((360, 200), process_ar(s_name), font=font_s, fill="#FFD700", anchor="mm")
     ui_clip = mp.ImageClip(np.array(ui_canvas)).set_duration(dur)
 
     lines = textwrap.wrap(full_text, width=28)
@@ -96,10 +127,14 @@ def build_shorts_video():
     font_a = ImageFont.truetype(FONT_PATH, 48)
 
     for i, line in enumerate(lines):
-        d_t.text((300, i*line_h + 100), process_ar(line), font=font_a, fill="white", anchor="mm")
+        # جعل النص أبيض ناصع
+        d_t.text((300, i*line_h + 100), process_ar(line), font=font_a, fill=(255, 255, 255, 255), anchor="mm")
 
     txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
-    moving_txt = txt_clip.set_position(lambda t: ('center', 900 - (t * (canvas_h / dur))))
+    
+    # تعديل سرعة السكرول لتتناسب مع مدة الصوت الجديدة
+    moving_txt = txt_clip.set_position(lambda t: ('center', 900 - (t * (canvas_h / (dur + 2)))))
+    
     text_area = mp.CompositeVideoClip([moving_txt], size=(720, 1280)).crop(y1=320, y2=980, x1=70, x2=650).set_position(('center', 320))
 
     final = mp.CompositeVideoClip([bg, dark, text_area, ui_clip]).set_audio(final_audio)
@@ -124,36 +159,25 @@ def build_shorts_video():
 
     print(f"✅ تم نشر الفيديو بنجاح: سورة {s_name}")
 
-# ================== التشغيل الرئيسي (النظام الذكي) ==================
+# ================== التشغيل الرئيسي ==================
 if __name__ == "__main__":
 
-    # 1. نعرف إحنا شغالين إزاي (أوتوماتيك ولا يدوي)
     event_name = os.environ.get('GITHUB_EVENT_NAME')
 
-    # 2. نشوف هل الفيديو نزل النهاردة ولا لأ
     if is_uploaded_today():
-        # لو نزل النهاردة، نسأل: هل ده تشغيل يدوي؟
         if event_name == 'workflow_dispatch':
             print("⚠️ تنبيه: الفيديو اليومي مسجل إنه نزل.")
-            print("🛠️ بما إنك شغلت البوت 'يدوي'، هنكمل ونعمل فيديو كمان للتجربة.")
+            print("🛠️ تشغيل يدوي: جاري إنشاء فيديو إضافي طويل ومحسن...")
         else:
-            # لو أوتوماتيك (Schedule) -> نقفل عشان التكرار
-            print("✅ فيديو النهارده نزل خلاص، وده تشغيل أوتوماتيك.")
-            print("💤 تصبح على خير، مش هنعمل حاجة.")
+            print("✅ فيديو النهارده نزل خلاص. (Automatic Skip)")
             sys.exit(0)
     else:
-        print("📅 مفيش فيديو نزل النهاردة لسه.")
-    
-    print("🎬 جاري بدء صناعة الفيديو...")
+        print("📅 مفيش فيديو نزل النهاردة. جاري العمل...")
 
     try:
         build_shorts_video()
-        
-        # لو نجح، نعلم في السجل
         mark_uploaded_today()
         print("📝 تم تحديث السجل اليومي بنجاح.")
-        
     except Exception as e:
         print("🔥 حصل خطأ أثناء التنفيذ أو الرفع:", e)
-        # نخرج بـ Error عشان GitHub يعرف إن فيه مشكلة ويعيد المحاولة
         sys.exit(1)
