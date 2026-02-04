@@ -9,15 +9,13 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# ================== الثوابت الهندسية (عشان كله يظبط على كله) ==================
-# حدود المربع الشفاف (بالبكسل)
-BOX_TOP = 260
-BOX_BOTTOM = 1040
-BOX_LEFT = 50
-BOX_RIGHT = 670
-BOX_RADIUS = 30
-# الشفافية (0 = شفاف خالص، 255 = معتم)
-BOX_OPACITY = 140 
+# ================== إعدادات الأبعاد (عشان الدقة) ==================
+# إحداثيات المربع الشفاف على الشاشة
+BOX_X = 50
+BOX_Y = 280
+BOX_W = 620  # العرض
+BOX_H = 750  # الارتفاع (الطول)
+BOX_OPACITY = 160 # درجة الشفافية
 
 # ================== سجل يومي ==================
 LOG_FILE = "daily_log.txt"
@@ -40,11 +38,12 @@ PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 AUDIO_EDITION = 'ar.alafasy'
 FONT_PATH = "ArabicFont.ttf"
 
+# معالجة العربي (الكلاسيكية اللي اشتغلت معاك)
 def process_ar(t):
     try:
         reshaped = arabic_reshaper.reshape(t)
         bidi_text = get_display(reshaped)
-        return bidi_text[::-1]
+        return bidi_text[::-1] # الطريقة دي هي اللي ظبطت معاك في البيلو
     except:
         return t
 
@@ -55,7 +54,7 @@ def youtube_authenticate():
     return build('youtube', 'v3', credentials=creds)
 
 def build_shorts_video():
-    print("🚀 [1/4] جاري التجهيز...")
+    print("🚀 [1/4] تحضير الموارد...")
 
     s_id = random.randint(1, 114)
     res = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
@@ -100,70 +99,73 @@ def build_shorts_video():
     with open("bg_v.mp4", "wb") as f:
         f.write(requests.get(v_url).content)
 
-    print(f"⚙️ [2/4] المونتاج وضبط الطبقات...")
+    print(f"⚙️ [2/4] المونتاج (نظام الحاوية المغلقة)...")
 
-    # الطبقة 1: الفيديو الخلفي
+    # 1. الخلفية الأساسية
     bg = mp.VideoFileClip("bg_v.mp4").resize(height=1280).crop(x1=0, y1=0, width=720, height=1280).set_duration(dur)
     dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.4)
 
-    # الطبقة 2: المربع الشفاف (باستخدام الثوابت)
+    # 2. رسم المربع الشفاف (الخلفية فقط)
     box_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
     box_draw = ImageDraw.Draw(box_canvas)
-    # رسم المربع بناءً على الثوابت
+    # المربع يترسم في مكانه
     box_draw.rounded_rectangle(
-        [BOX_LEFT, BOX_TOP, BOX_RIGHT, BOX_BOTTOM], 
-        radius=BOX_RADIUS, 
+        [BOX_X, BOX_Y, BOX_X + BOX_W, BOX_Y + BOX_H], 
+        radius=30, 
         fill=(0,0,0,BOX_OPACITY)
     )
-    box_clip = mp.ImageClip(np.array(box_canvas)).set_duration(dur)
+    box_bg_clip = mp.ImageClip(np.array(box_canvas)).set_duration(dur)
 
-    # الطبقة 3: النص المتحرك
+    # 3. تجهيز النص الطويل (الصورة الطويلة)
     lines = textwrap.wrap(full_text, width=28)
     line_h = 95
-    canvas_h = (len(lines) + 3) * line_h # مساحة إضافية
-    txt_img = Image.new('RGBA', (600, canvas_h), (0, 0, 0, 0))
+    text_img_h = (len(lines) + 2) * line_h
+    
+    txt_img = Image.new('RGBA', (BOX_W, text_img_h), (0, 0, 0, 0))
     d_t = ImageDraw.Draw(txt_img)
     font_a = ImageFont.truetype(FONT_PATH, 48)
 
     for i, line in enumerate(lines):
-        d_t.text((300, i*line_h + 100), process_ar(line), font=font_a, fill="white", anchor="mm")
+        d_t.text((BOX_W/2, i*line_h + 80), process_ar(line), font=font_a, fill="white", anchor="mm")
 
-    txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
+    # تحويل الصورة لفيديو كليب
+    raw_txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
+
+    # 4. حركة النص (المعادلة: يبدأ من تحت الصندوق ويطلع فوقه)
+    # Start: عند ارتفاع الصندوق (يعني مستخبي تحت)
+    # End: سالب ارتفاع النص (يعني مستخبي فوق)
+    def scroll_func(t):
+        progress = t / dur
+        start_pos = BOX_H          # أسفل الحاوية
+        end_pos = -text_img_h      # أعلى الحاوية
+        current_y = start_pos - (progress * (start_pos - end_pos))
+        return ('center', current_y)
+
+    moving_txt = raw_txt_clip.set_position(scroll_func)
+
+    # 5. الحاوية السحرية (Container)
+    # بنعمل فيديو حجمه هو حجم المربع بالظبط، وبنحط جواه النص المتحرك
+    # أي حاجة تخرج عن حدود الفيديو ده بتختفي فوراً
+    text_container = mp.CompositeVideoClip([moving_txt], size=(BOX_W, BOX_H))
     
-    # حساب الحركة:
-    # البداية: تحت المربع بـ 50 بكسل (BOX_BOTTOM + 50) عشان يطلع بالتدريج
-    start_y = BOX_BOTTOM + 50
-    # النهاية: النص يخلص كله ويطلع فوق المربع
-    end_y = BOX_TOP - canvas_h 
-    
-    moving_txt = txt_clip.set_position(lambda t: ('center', start_y - (t * ((start_y - end_y) / dur))))
+    # نحط الحاوية دي في مكانها على الشاشة الرئيسية
+    text_container = text_container.set_position((BOX_X, BOX_Y))
 
-    # الـ Masking (المقص): لازم يكون جوه حدود المربع بالظبط (+10 هامش عشان الشكل)
-    text_area = mp.CompositeVideoClip([moving_txt], size=(720, 1280))\
-                .crop(
-                    x1=BOX_LEFT, 
-                    y1=BOX_TOP + 10,   # يقص من تحت الحافة العلوية للمربع
-                    x2=BOX_RIGHT, 
-                    y2=BOX_BOTTOM - 10 # يقص قبل الحافة السفلية للمربع
-                )\
-                .set_position(('center', 0))
-
-    # الطبقة 4: العنوان (اسم السورة) - ثابت فوق المربع
+    # 6. العنوان (فوق كل حاجة)
     title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
     title_draw = ImageDraw.Draw(title_canvas)
-    font_s = ImageFont.truetype(FONT_PATH, 85)
-    # مكان العنوان: فوق بداية النص المتحرك بشوية
-    title_y_pos = BOX_TOP - 60 
-    title_draw.text((360, title_y_pos), process_ar(s_name), font=font_s, fill="#FFD700", anchor="mm")
+    font_s = ImageFont.truetype(FONT_PATH, 80)
+    # مكان العنوان فوق المربع بـ 80 بكسل
+    title_draw.text((360, BOX_Y - 80), process_ar(s_name), font=font_s, fill="#FFD700", anchor="mm")
     title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
 
-    # الترتيب: خلفية -> مربع -> نص مقصوص -> عنوان
-    final = mp.CompositeVideoClip([bg, dark, box_clip, text_area, title_clip]).set_audio(final_audio)
+    # الترتيب النهائي
+    final = mp.CompositeVideoClip([bg, dark, box_bg_clip, text_container, title_clip]).set_audio(final_audio)
 
-    print("⏳ [3/4] الرندر...")
+    print("⏳ [3/4] جاري الرندر...")
     final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", logger=None, threads=4)
 
-    print("📡 [4/4] الرفع...")
+    print("📡 [4/4] جاري الرفع...")
     youtube = youtube_authenticate()
 
     body = {
@@ -185,9 +187,9 @@ if __name__ == "__main__":
 
     if is_uploaded_today():
         if event_name == 'workflow_dispatch':
-            print("⚠️ تشغيل يدوي: جاري إنشاء نسخة إضافية...")
+            print("⚠️ تشغيل يدوي للتجربة...")
         else:
-            print("✅ تخطي (تم النشر مسبقاً).")
+            print("✅ تم النشر اليوم. إغلاق.")
             sys.exit(0)
     
     try:
