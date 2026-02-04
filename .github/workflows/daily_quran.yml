@@ -2,13 +2,12 @@ name: Daily Quran Auto
 
 on:
   schedule:
-    # التوقيت: يبدأ الساعة 15:17 UTC (يعني 5:17 م بتوقيت مصر)
-    # ويكرر المحاولة في الدقيقة 17 و 32 و 47 من كل ساعة
-    # بداية من الساعة 15 (3 عصراً UTC) لحد 23 (11 مساءً UTC)
-    - cron: '17,32,47 15-23 * * *'
+    # التوقيت: 
+    # 3 UTC = الساعة 5:00 فجراً بتوقيت مصر
+    # 3-11 = يفضل يحاول من 5 الفجر لحد 1 الظهر
+    - cron: '17,32,47 3-11 * * *'
   workflow_dispatch:
 
-# صلاحيات الكتابة عشان يقدر يحفظ ملف الـ Log
 permissions:
   contents: write
 
@@ -24,7 +23,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          persist-credentials: true # مهم عشان يقدر يعمل Push تاني
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -46,9 +45,8 @@ jobs:
         run: |
           python main.py
 
-      # الخطوة دي هي اللي بتحفظ إن الفيديو اترفع عشان ميتكررش
       - name: Commit daily log if updated
-        if: success() # تشتغل بس لو السكريبت نجح
+        if: success()
         run: |
           if git status --porcelain | grep daily_log.txt; then
             git config user.name "github-actions[bot]"
