@@ -5,7 +5,7 @@ import moviepy.editor as mp
 from moviepy.video.fx.all import loop 
 import arabic_reshaper
 from bidi.algorithm import get_display
-from PIL import Image, ImageFont, ImageDraw, ImageFilter
+from PIL import Image, ImageFont, ImageDraw
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -15,7 +15,7 @@ BOX_X = 50
 BOX_Y = 280
 BOX_W = 620
 BOX_H = 750
-BOX_OPACITY = 160 
+BOX_OPACITY = 160
 
 # ================== سجل يومي ==================
 LOG_FILE = "daily_log.txt"
@@ -52,20 +52,6 @@ def youtube_authenticate():
     creds = Credentials.from_authorized_user_info(token_data)
     return build('youtube', 'v3', credentials=creds)
 
-# دالة مساعدة لرسم النص بحدود (Stroke) وظل
-def draw_text_with_style(draw, text, x, y, font, text_color="white", stroke_color="#D4AF37", shadow_color="black"):
-    # 1. رسم الظل (Shadow)
-    draw.text((x + 4, y + 4), text, font=font, fill=shadow_color, anchor="mm")
-    
-    # 2. رسم الحدود (Stroke/Outline) - بنرسم النص 4 مرات حوالين المركز
-    stroke_width = 2
-    for off_x in range(-stroke_width, stroke_width+1):
-        for off_y in range(-stroke_width, stroke_width+1):
-            draw.text((x + off_x, y + off_y), text, font=font, fill=stroke_color, anchor="mm")
-            
-    # 3. رسم النص الأصلي في النص
-    draw.text((x, y), text, font=font, fill=text_color, anchor="mm")
-
 def build_shorts_video():
     print("🚀 [1/4] تحضير الموارد...")
 
@@ -79,7 +65,7 @@ def build_shorts_video():
     audio_clips = []
     text_parts = []
     current_duration = 0
-    TARGET_DURATION = 40 
+    TARGET_DURATION = 50 # زودت المدة لـ 50 ثانية عشان الفيديو يبقى دسم
 
     for i, a in enumerate(all_ayahs):
         f_path = f"temp_{i}.mp3"
@@ -102,46 +88,49 @@ def build_shorts_video():
     final_audio = final_audio.subclip(0, dur)
     full_text = " ۞ ".join(text_parts)
 
-    # --- اختيار الخلفية السينمائية ---
-    print("🎨 جاري اختيار خلفية سينمائية...")
+    # --- اختيار الخلفية (النظام المتنوع الجديد) ---
+    print("🎨 جاري اختيار خلفية متنوعة...")
     headers = {'Authorization': PEXELS_API_KEY}
     
-    # كلمات بحث قوية جداً لجذب الانتباه
-    cinematic_queries = [
-        "cinematic nature", "drone shot", "aerial view", "slow motion water", 
-        "epic clouds", "galaxy timelapse", "mountain peak", "desert sunset 4k",
-        "ocean waves slow motion", "forest sunlight", "stars night sky", "islamic geometric"
+    # كلمات بحث متنوعة جداً عشان تكسر الملل
+    search_queries = [
+        "nature", "sky", "clouds", "mosque", "islamic architecture", 
+        "forest", "river", "mountain", "stars", "galaxy", 
+        "flowers", "rain", "desert", "sunset", "ocean", "waterfall"
     ]
-    query = random.choice(cinematic_queries)
-    page_num = random.randint(1, 10) # وسعنا نطاق البحث
+    query = random.choice(search_queries)
+    page_num = random.randint(1, 5) # تقليب في الصفحات
     
-    print(f"🔎 البحث عن: {query}")
+    print(f"🔎 البحث عن: {query} - صفحة: {page_num}")
     
     try:
         v_res = requests.get(
-            f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=20&page={page_num}',
+            f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=40&page={page_num}',
             headers=headers
         ).json()
 
         videos_list = v_res.get('videos', [])
-        # نفضل الفيديوهات اللي جودتها عالية ومدتها كويسة
-        best_videos = [v for v in videos_list if v['duration'] >= 10 and v['width'] >= 1080]
+        long_videos = [v for v in videos_list if v['duration'] >= 15]
         
-        selection_pool = best_videos if best_videos else videos_list
-        if not selection_pool: raise Exception("No videos")
+        if long_videos:
+            selection_pool = long_videos
+        else:
+            selection_pool = videos_list
+
+        if not selection_pool:
+            raise Exception("No videos found")
 
         chosen_video = random.choice(selection_pool)
         v_url = chosen_video['video_files'][0]['link']
         
-        # اختيار رابط الجودة العالية
+        # محاولة جلب جودة HD
         for file in chosen_video['video_files']:
-             # بنحاول نجيب HD عشان الصورة تبقى كريستال
-            if file['height'] >= 1280:
+            if file['height'] >= 1280 and file['height'] <= 2160:
                 v_url = file['link']
                 break
 
-    except:
-        # Fallback
+    except Exception as e:
+        print(f"⚠️ استخدام الخلفية الاحتياطية ({e})...")
         v_res = requests.get(
             'https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=15',
             headers=headers
@@ -151,16 +140,16 @@ def build_shorts_video():
     with open("bg_v.mp4", "wb") as f:
         f.write(requests.get(v_url).content)
 
-    print(f"⚙️ [2/4] المونتاج والإخراج الفني...")
+    print(f"⚙️ [2/4] المونتاج والتصميم...")
 
-    # 1. الخلفية
+    # 1. الخلفية الأساسية (Loop)
     bg_source = mp.VideoFileClip("bg_v.mp4").resize(height=1280).crop(x1=0, y1=0, width=720, height=1280)
     bg = loop(bg_source, duration=dur)
     
-    # زيادة التغميق سنة بسيطة (0.5) عشان العنوان الجديد ينور
-    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.5)
+    # طبقة تغميق خفيفة عشان الكلام يبان
+    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.3)
 
-    # 2. المربع الشفاف (زي ما هو ممتاز)
+    # 2. رسم المربع الشفاف (منطقة الآيات)
     box_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
     box_draw = ImageDraw.Draw(box_canvas)
     box_draw.rounded_rectangle(
@@ -170,7 +159,7 @@ def build_shorts_video():
     )
     box_bg_clip = mp.ImageClip(np.array(box_canvas)).set_duration(dur)
 
-    # 3. النص القرآني
+    # 3. تجهيز نص الآيات
     lines = textwrap.wrap(full_text, width=28)
     line_h = 95
     text_img_h = (len(lines) + 2) * line_h
@@ -184,7 +173,7 @@ def build_shorts_video():
 
     raw_txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
 
-    # 4. حركة السكرول
+    # 4. حركة سكرول النص
     def scroll_func(t):
         progress = t / dur
         start_pos = BOX_H
@@ -193,40 +182,47 @@ def build_shorts_video():
         return ('center', current_y)
 
     moving_txt = raw_txt_clip.set_position(scroll_func)
-    text_container = mp.CompositeVideoClip([moving_txt], size=(BOX_W, BOX_H)).set_position((BOX_X, BOX_Y))
 
-    # 5. العنوان الجديد (التغيير الكبير هنا)
+    # 5. الحاوية (Masking)
+    text_container = mp.CompositeVideoClip([moving_txt], size=(BOX_W, BOX_H))
+    text_container = text_container.set_position((BOX_X, BOX_Y))
+
+    # 6. ==== تصميم العنوان الجديد (أشيك وأوضح) ====
     title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
     title_draw = ImageDraw.Draw(title_canvas)
-    font_s = ImageFont.truetype(FONT_PATH, 90) # كبرنا الخط شوية لـ 90
-    
-    # استخدام دالة الرسم الجديدة (أبيض بحدود ذهبية وظل)
-    draw_text_with_style(
-        title_draw, 
-        process_ar(s_name), 
-        360,           # x (منتصف الشاشة)
-        BOX_Y - 90,    # y (فوق المربع بمسافة كويسة)
-        font_s,
-        text_color="white",      # لون النص
-        stroke_color="#D4AF37",  # لون الحدود (ذهبي)
-        shadow_color="#000000"   # لون الظل (أسود)
+    font_s = ImageFont.truetype(FONT_PATH, 90) # كبرت الخط شوية
+
+    # أ) خلفية شريطية ورا العنوان (عشان الوضوح)
+    # بنرسم مستطيل مدور الحواف ورا العنوان بالظبط
+    title_bg_y = BOX_Y - 90
+    title_draw.rounded_rectangle(
+        [200, title_bg_y - 60, 520, title_bg_y + 60], 
+        radius=20, 
+        fill=(0, 0, 0, 100) # لون أسود شفاف خفيف
     )
+
+    # ب) رسم الظل (Shadow) الأول
+    title_text = process_ar(s_name)
+    title_draw.text((364, title_bg_y + 4), title_text, font=font_s, fill="black", anchor="mm")
+
+    # ج) رسم النص الأساسي (أبيض ناصع)
+    title_draw.text((360, title_bg_y), title_text, font=font_s, fill="#FFFFFF", anchor="mm")
     
     title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
 
     # الترتيب النهائي
     final = mp.CompositeVideoClip([bg, dark, box_bg_clip, text_container, title_clip]).set_audio(final_audio)
 
-    print("⏳ [3/4] جاري الرندر بجودة عالية...")
-    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="5500k", logger=None, threads=4)
+    print("⏳ [3/4] جاري الرندر...")
+    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="5000k", logger=None, threads=4)
 
     print("📡 [4/4] جاري الرفع...")
     youtube = youtube_authenticate()
 
     body = {
         'snippet': {
-            'title': f'تلاوة تأسر القلوب - {s_name} 🎧 #shorts #قرآن',
-            'description': f'سورة {s_name} بصوت مشاري العفاسي.\nاستمع بقلبك.\n\n#quran #islam #recitation #راحة_نفسية',
+            'title': f'تلاوة خاشعة - {s_name} #shorts #quran',
+            'description': f'سورة {s_name} بصوت مشاري العفاسي \n. \n. \n#quran #قرآن #تلاوة #راحة_نفسية',
             'categoryId': '22'
         },
         'status': {'privacyStatus': 'public'}
