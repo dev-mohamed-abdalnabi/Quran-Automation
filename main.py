@@ -10,13 +10,6 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# ================== إعدادات الأبعاد ==================
-BOX_X = 50
-BOX_Y = 280
-BOX_W = 620
-BOX_H = 750
-BOX_OPACITY = 160
-
 # ================== سجل يومي ==================
 LOG_FILE = "daily_log.txt"
 
@@ -40,11 +33,11 @@ AUDIO_EDITION = 'ar.alafasy'
 FONT_PATH_AR = "Amiri-Regular.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
-# ================== ضبط مكتبة العربي للحفاظ على التشكيل متصل ==================
+# ================== ضبط مكتبة العربي للحفاظ على التشكيل ==================
 reshaper_config = {
     'delete_harakat': False,
-    'support_ligatures': False, # إغلاقها يضمن جلوس التشكيل فوق الحرف مباشرة
-    'delete_tatweel': True
+    'support_ligatures': True,
+    'delete_tatweel': False
 }
 reshaper = arabic_reshaper.ArabicReshaper(configuration=reshaper_config)
 
@@ -58,11 +51,11 @@ def process_ar(t):
         return t
 
 def format_ayah_text(text):
-    """دالة قوية جداً لفصل البسملة عن الآية الأولى"""
-    if text.startswith("بِسۡمِ") or text.startswith("بِسْمِ"):
-        targets = ["ٱلرَّحِيمِ ", "الرَّحِيمِ ", "الرحيم "]
+    """دالة قوية لفصل البسملة عن الآية الأولى باستخدام النص القياسي"""
+    if text.startswith("بِسْمِ اللَّهِ"):
+        targets = ["الرَّحِيمِ ", "الرحيم "]
         for target in targets:
-            if target in text[:60]: 
+            if target in text[:60]:
                 return text.replace(target, target.strip() + "\n", 1)
     return text
 
@@ -76,19 +69,20 @@ def build_shorts_video():
     print("🚀 [1/4] تحضير الموارد...")
     
     if not os.path.exists(FONT_PATH_AR) or not os.path.exists(FONT_PATH_EN):
-        print(f"❌ خطأ: ملفات الخطوط غير موجودة!")
+        print(f"❌ خطأ: ملفات الخطوط غير موجودة! تأكد من رفع Amiri-Regular.ttf و Roboto-Regular.ttf")
         sys.exit(1)
 
     # --- اختيار السورة ---
     s_id = random.randint(1, 114)
-    res_audio = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-    res_text = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-uthmani").json()['data']
+    
+    # جلب النص القياسي بالتشكيل المضبوط (يمنع مشكلة التشكيل الطاير)
+    res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
     res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
     
-    s_name = res_text['name']
+    s_name = res_ar['name']
     
-    # تم إزالة النمط القديم تماماً (الآن النمط المزامَن ثابت دائماً)
-    print("🎨 تم تثبيت النمط السينمائي المزامَن (بدون سكرول)")
+    # تم تثبيت الستايل الجديد لأنه الأفضل وإلغاء الستايل القديم
+    print("🎨 الستايل المختار لهذا الفيديو: static_sync (متزامن واحترافي)")
 
     # --- تجميع الصوت ---
     audio_clips = []
@@ -97,16 +91,18 @@ def build_shorts_video():
     current_duration = 0
     TARGET_DURATION = 50 
 
-    for i, (a_aud, a_txt, a_en) in enumerate(zip(res_audio['ayahs'], res_text['ayahs'], res_en['ayahs'])):
+    for i, (a_ar, a_en) in enumerate(zip(res_ar['ayahs'], res_en['ayahs'])):
         f_path = f"temp_{i}.mp3"
         with open(f_path, 'wb') as f:
-            f.write(requests.get(a_aud['audio']).content)
+            f.write(requests.get(a_ar['audio']).content)
         
         clip = mp.AudioFileClip(f_path)
         audio_clips.append(clip)
         
-        formatted_ar_text = format_ayah_text(a_txt['text'])
+        # معالجة النص العربي لفصل البسملة
+        formatted_ar_text = format_ayah_text(a_ar['text'])
         text_parts_ar.append(formatted_ar_text)
+        
         text_parts_en.append(a_en['text'])
         current_duration += clip.duration
 
@@ -179,8 +175,9 @@ def build_shorts_video():
     font_en = ImageFont.truetype(FONT_PATH_EN, 30)
     font_s = ImageFont.truetype(FONT_PATH_AR, 90)
 
-    # النمط الجديد (فقط) مع تأثيرات الظل السينمائي
+    overlays = []
     text_clips = []
+
     for i in range(len(audio_clips)):
         clip_start = starts[i]
         clip_end = starts[i+1] if i < len(starts)-1 else dur
@@ -194,29 +191,22 @@ def build_shorts_video():
         ar_lines = []
         for part in text_parts_ar[i].split('\n'):
             if part.strip():
-                ar_lines.extend(textwrap.wrap(part, width=55))
+                ar_lines.extend(textwrap.wrap(part, width=45))
                 
         en_text_clean = text_parts_en[i].strip()
-        en_lines = textwrap.wrap(en_text_clean, width=45)
+        en_lines = textwrap.wrap(en_text_clean, width=40)
         
         total_text_height = (len(ar_lines) * 80) + 25 + (len(en_lines) * 40)
         y_offset = (1280 - total_text_height) / 2
         
-        # رسم الآية مع الظل السينمائي (يمنع انفصال التشكيل)
         for line in ar_lines:
-            processed_line = process_ar(line)
-            # رسم الظل الخلفي
-            d.text((360 + 4, y_offset + 4), processed_line, font=font_ar, fill=(0, 0, 0, 200), anchor="mm")
-            # رسم النص الأبيض الأساسي
-            d.text((360, y_offset), processed_line, font=font_ar, fill="white", anchor="mm")
+            d.text((360, y_offset), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
             y_offset += 80
             
         y_offset += 25 
         
-        # رسم الترجمة مع الظل
         for line in en_lines:
-            d.text((360 + 2, y_offset + 2), line, font=font_en, fill=(0, 0, 0, 200), anchor="mm")
-            d.text((360, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm")
+            d.text((360, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=1, stroke_fill="black")
             y_offset += 40
         
         txt_clip = mp.ImageClip(np.array(img)).set_start(clip_start).set_duration(clip_dur).crossfadein(0.2).crossfadeout(0.2)
@@ -224,15 +214,14 @@ def build_shorts_video():
         
     final_text_overlay = mp.CompositeVideoClip(text_clips, size=(720,1280))
     
-    # عنوان السورة في الأعلى مع ظل
     title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
     title_draw = ImageDraw.Draw(title_canvas)
-    title_text = process_ar(s_name)
-    title_draw.text((360 + 5, 200 + 5), title_text, font=font_s, fill=(0, 0, 0, 200), anchor="mm")
-    title_draw.text((360, 200), title_text, font=font_s, fill="white", anchor="mm")
+    title_draw.text((360, 200), process_ar(s_name), font=font_s, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
     title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
     
-    final = mp.CompositeVideoClip([bg, dark, final_text_overlay, title_clip]).set_audio(final_audio)
+    overlays.extend([final_text_overlay, title_clip])
+
+    final = mp.CompositeVideoClip([bg, dark] + overlays).set_audio(final_audio)
 
     print("⏳ [3/4] الرندر...")
     final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="5000k", logger=None, threads=4)
