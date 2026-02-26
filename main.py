@@ -57,38 +57,60 @@ def build_shorts_video():
 
     # --- اختيار السورة ---
     s_id = random.randint(1, 114)
-    res = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-    s_name = res['name']
-    all_ayahs = res['ayahs']
+    # جلب النص العربي والصوت
+    res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
+    # جلب الترجمة الإنجليزية (Saheeh International)
+    res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
+    
+    s_name = res_ar['name']
+    all_ayahs_ar = res_ar['ayahs']
+    all_ayahs_en = res_en['ayahs']
 
-    # --- تجميع الصوت ---
+    # --- اختيار ستايل الفيديو (القديم أو الجديد حسب الصورة) ---
+    VIDEO_STYLE = random.choice(['scrolling', 'static_sync'])
+    print(f"🎨 الستايل المختار لهذا الفيديو: {VIDEO_STYLE}")
+
+    # --- تجميع الصوت (مع حل مشكلة التقطيع) ---
     audio_clips = []
-    text_parts = []
+    text_parts_ar = []
+    text_parts_en = []
     current_duration = 0
     TARGET_DURATION = 50 
 
-    for i, a in enumerate(all_ayahs):
+    for i, (a_ar, a_en) in enumerate(zip(all_ayahs_ar, all_ayahs_en)):
         f_path = f"temp_{i}.mp3"
         with open(f_path, 'wb') as f:
-            f.write(requests.get(a['audio']).content)
+            f.write(requests.get(a_ar['audio']).content)
         
         clip = mp.AudioFileClip(f_path)
         audio_clips.append(clip)
-        text_parts.append(a['text'])
+        text_parts_ar.append(a_ar['text'])
+        text_parts_en.append(a_en['text'])
         current_duration += clip.duration
 
         if current_duration >= TARGET_DURATION:
             if current_duration > 59: 
                 audio_clips.pop()
-                text_parts.pop()
+                text_parts_ar.pop()
+                text_parts_en.pop()
             break
     
-    final_audio = mp.concatenate_audioclips(audio_clips)
+    # حل مشكلة التقطيع بدمج الصوت مع تداخل (Overlap) يبلغ 0.15 ثانية
+    overlap_sec = 0.15
+    starts = [0]
+    for clip in audio_clips[:-1]:
+        starts.append(max(0, starts[-1] + clip.duration - overlap_sec))
+        
+    for i in range(len(audio_clips)):
+        audio_clips[i] = audio_clips[i].set_start(starts[i])
+        
+    final_audio = mp.CompositeAudioClip(audio_clips)
     dur = min(59, final_audio.duration)
     final_audio = final_audio.subclip(0, dur)
-    full_text = " ۞ ".join(text_parts)
+    
+    full_text = " ۞ ".join(text_parts_ar)
 
-    # --- اختيار الخلفية (نظام التنوع) ---
+    # --- اختيار الخلفية ---
     print("🎨 جاري اختيار خلفية متنوعة...")
     headers = {'Authorization': PEXELS_API_KEY}
     
@@ -100,8 +122,6 @@ def build_shorts_video():
     query = random.choice(search_queries)
     page_num = random.randint(1, 5) 
     
-    print(f"🔎 البحث عن: {query} - صفحة: {page_num}")
-    
     try:
         v_res = requests.get(
             f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=40&page={page_num}',
@@ -110,14 +130,9 @@ def build_shorts_video():
 
         videos_list = v_res.get('videos', [])
         long_videos = [v for v in videos_list if v['duration'] >= 15]
-        
-        if long_videos:
-            selection_pool = long_videos
-        else:
-            selection_pool = videos_list
+        selection_pool = long_videos if long_videos else videos_list
 
-        if not selection_pool:
-            raise Exception("No videos found")
+        if not selection_pool: raise Exception("No videos found")
 
         chosen_video = random.choice(selection_pool)
         v_url = chosen_video['video_files'][0]['link']
@@ -129,10 +144,7 @@ def build_shorts_video():
 
     except Exception as e:
         print(f"⚠️ الخلفية الاحتياطية ({e})...")
-        v_res = requests.get(
-            'https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=15',
-            headers=headers
-        ).json()
+        v_res = requests.get('https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=15', headers=headers).json()
         v_url = random.choice(v_res['videos'])['video_files'][0]['link']
 
     with open("bg_v.mp4", "wb") as f:
@@ -140,71 +152,93 @@ def build_shorts_video():
 
     print(f"⚙️ [2/4] المونتاج...")
 
-    # 1. الخلفية
+    # تجهيز الخلفية
     bg_source = mp.VideoFileClip("bg_v.mp4").resize(height=1280).crop(x1=0, y1=0, width=720, height=1280)
     bg = loop(bg_source, duration=dur)
-    
-    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.3)
+    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.4)
 
-    # 2. مربع الآيات الشفاف
-    box_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
-    box_draw = ImageDraw.Draw(box_canvas)
-    box_draw.rounded_rectangle(
-        [BOX_X, BOX_Y, BOX_X + BOX_W, BOX_Y + BOX_H], 
-        radius=30, 
-        fill=(0,0,0,BOX_OPACITY)
-    )
-    box_bg_clip = mp.ImageClip(np.array(box_canvas)).set_duration(dur)
+    overlays = []
 
-    # 3. الآيات
-    lines = textwrap.wrap(full_text, width=28)
-    line_h = 95
-    text_img_h = (len(lines) + 2) * line_h
-    
-    txt_img = Image.new('RGBA', (BOX_W, text_img_h), (0, 0, 0, 0))
-    d_t = ImageDraw.Draw(txt_img)
-    font_a = ImageFont.truetype(FONT_PATH, 48)
+    if VIDEO_STYLE == 'scrolling':
+        # ================== الشكل القديم (صندوق + سكرول) ==================
+        box_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
+        box_draw = ImageDraw.Draw(box_canvas)
+        box_draw.rounded_rectangle([BOX_X, BOX_Y, BOX_X + BOX_W, BOX_Y + BOX_H], radius=30, fill=(0,0,0,BOX_OPACITY))
+        box_bg_clip = mp.ImageClip(np.array(box_canvas)).set_duration(dur)
 
-    for i, line in enumerate(lines):
-        d_t.text((BOX_W/2, i*line_h + 80), process_ar(line), font=font_a, fill="white", anchor="mm")
+        lines = textwrap.wrap(full_text, width=28)
+        line_h = 95
+        text_img_h = (len(lines) + 2) * line_h
+        
+        txt_img = Image.new('RGBA', (BOX_W, text_img_h), (0, 0, 0, 0))
+        d_t = ImageDraw.Draw(txt_img)
+        font_a = ImageFont.truetype(FONT_PATH, 48)
 
-    raw_txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
+        for i, line in enumerate(lines):
+            d_t.text((BOX_W/2, i*line_h + 80), process_ar(line), font=font_a, fill="white", anchor="mm")
 
-    def scroll_func(t):
-        progress = t / dur
-        start_pos = BOX_H
-        end_pos = -text_img_h
-        current_y = start_pos - (progress * (start_pos - end_pos))
-        return ('center', current_y)
+        raw_txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
 
-    moving_txt = raw_txt_clip.set_position(scroll_func)
-    text_container = mp.CompositeVideoClip([moving_txt], size=(BOX_W, BOX_H))
-    text_container = text_container.set_position((BOX_X, BOX_Y))
+        def scroll_func(t):
+            progress = t / dur
+            start_pos = BOX_H
+            end_pos = -text_img_h
+            return ('center', start_pos - (progress * (start_pos - end_pos)))
 
-    # 6. ==== تصميم العنوان الجديد (حدود خارجية Stroke) ====
-    title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
-    title_draw = ImageDraw.Draw(title_canvas)
-    font_s = ImageFont.truetype(FONT_PATH, 90) # خط كبير
-    
-    title_text = process_ar(s_name)
-    title_y_pos = BOX_Y - 80
+        moving_txt = raw_txt_clip.set_position(scroll_func)
+        text_container = mp.CompositeVideoClip([moving_txt], size=(BOX_W, BOX_H)).set_position((BOX_X, BOX_Y))
 
-    # رسم الحدود السوداء (Stroke) - بتمشي حوالين الكلام
-    # بنعملها عن طريق رسم النص بسمك حدود وتعبئة حدود
-    title_draw.text(
-        (360, title_y_pos), 
-        title_text, 
-        font=font_s, 
-        fill="white",      # لون النص
-        anchor="mm", 
-        stroke_width=5,    # سمك الحد الأسود
-        stroke_fill="black" # لون الحد
-    )
-    
-    title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
+        # عنوان السورة
+        title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
+        title_draw = ImageDraw.Draw(title_canvas)
+        font_s = ImageFont.truetype(FONT_PATH, 90)
+        title_draw.text((360, BOX_Y - 80), process_ar(s_name), font=font_s, fill="white", anchor="mm", stroke_width=5, stroke_fill="black")
+        title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
 
-    # الترتيب النهائي
-    final = mp.CompositeVideoClip([bg, dark, box_bg_clip, text_container, title_clip]).set_audio(final_audio)
+        overlays.extend([box_bg_clip, text_container, title_clip])
+
+    else:
+        # ================== الشكل الجديد (آية بآية متزامنة) ==================
+        text_clips = []
+        font_ar = ImageFont.truetype(FONT_PATH, 55)
+        font_en = ImageFont.truetype(FONT_PATH, 30) # يمكنك استخدام خط إنجليزي مختلف هنا إذا أردت
+
+        for i in range(len(audio_clips)):
+            clip_start = starts[i]
+            clip_end = starts[i+1] if i < len(starts)-1 else dur
+            clip_dur = clip_end - clip_start
+            
+            if clip_dur <= 0: continue
+            
+            img = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
+            d = ImageDraw.Draw(img)
+            
+            ar_lines = textwrap.wrap(text_parts_ar[i], width=26)
+            en_lines = textwrap.wrap(text_parts_en[i], width=45)
+            
+            y_offset = 550 - (len(ar_lines) * 20) # ضبط الارتفاع ليكون في المنتصف تقريباً
+            
+            # رسم الآية بالعربي
+            for line in ar_lines:
+                d.text((360, y_offset), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
+                y_offset += 75
+                
+            y_offset += 25 # مسافة بين العربي والإنجليزي
+            
+            # رسم الترجمة
+            for line in en_lines:
+                d.text((360, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=1, stroke_fill="black")
+                y_offset += 40
+            
+            # إنشاء كليب الآية وإضافة تأثير تلاشي ناعم (Crossfade)
+            txt_clip = mp.ImageClip(np.array(img)).set_start(clip_start).set_duration(clip_dur).crossfadein(0.2).crossfadeout(0.2)
+            text_clips.append(txt_clip)
+            
+        final_text_overlay = mp.CompositeVideoClip(text_clips, size=(720,1280))
+        overlays.append(final_text_overlay)
+
+    # الترتيب النهائي للفيديو
+    final = mp.CompositeVideoClip([bg, dark] + overlays).set_audio(final_audio)
 
     print("⏳ [3/4] الرندر...")
     final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="5000k", logger=None, threads=4)
