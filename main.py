@@ -37,7 +37,7 @@ def mark_uploaded_today():
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 AUDIO_EDITION = 'ar.alafasy'
 
-# أسماء ملفات الخطوط اللي انت هترفعها في نفس المسار
+# أسماء ملفات الخطوط اللي إنت رفعتها على GitHub
 FONT_PATH_AR = "Amiri-Regular.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
@@ -45,7 +45,8 @@ def process_ar(t):
     try:
         reshaped = arabic_reshaper.reshape(t)
         bidi_text = get_display(reshaped)
-        return bidi_text
+        # رجعنا [::-1] عشان يعكس النص ويترسم مظبوط من اليمين للشمال
+        return bidi_text[::-1]
     except:
         return t
 
@@ -58,9 +59,9 @@ def youtube_authenticate():
 def build_shorts_video():
     print("🚀 [1/4] تحضير الموارد...")
     
-    # التأكد من إنك رفعت الخطوط فعلاً قبل ما نكمل
+    # التأكد من إن الخطوط موجودة فعلاً قبل ما نكمل
     if not os.path.exists(FONT_PATH_AR) or not os.path.exists(FONT_PATH_EN):
-        print(f"❌ خطأ: ملفات الخطوط غير موجودة! يرجى رفع {FONT_PATH_AR} و {FONT_PATH_EN} في نفس المسار.")
+        print(f"❌ خطأ: ملفات الخطوط غير موجودة! يرجى التأكد من رفع {FONT_PATH_AR} و {FONT_PATH_EN} في نفس مسار السكربت.")
         sys.exit(1)
 
     # --- اختيار السورة ---
@@ -101,7 +102,7 @@ def build_shorts_video():
                 text_parts_en.pop()
             break
     
-    # دمج الصوت مع تداخل لمنع التقطيع (Crossfade / Overlap)
+    # دمج الصوت مع تداخل لمنع التقطيع بين الآيات
     overlap_sec = 0.15
     starts = [0]
     for clip in audio_clips[:-1]:
@@ -222,12 +223,14 @@ def build_shorts_video():
             
             y_offset = 550 - (len(ar_lines) * 20) 
             
+            # رسم الآية العربية
             for line in ar_lines:
                 d.text((360, y_offset), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=4, stroke_fill="black")
                 y_offset += 80
                 
             y_offset += 25 
             
+            # رسم الترجمة الإنجليزية (بدون معالجة العربي)
             for line in en_lines:
                 d.text((360, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=2, stroke_fill="black")
                 y_offset += 40
