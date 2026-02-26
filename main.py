@@ -42,7 +42,7 @@ FONT_PATH_EN = "Roboto-Regular.ttf"
 
 # ================== ضبط مكتبة العربي للحفاظ على التشكيل ==================
 reshaper_config = {
-    'delete_harakat': False, # دي أهم نقطة عشان التشكيل يفضل موجود
+    'delete_harakat': False,
     'support_ligatures': True,
     'delete_tatweel': False
 }
@@ -53,20 +53,20 @@ def process_ar(t):
         reshaped = reshaper.reshape(t)
         bidi_text = get_display(reshaped)
         return bidi_text[::-1]
-    except:
+    except Exception as e:
+        print(f"⚠️ خطأ في معالجة النص العربي: {e}")
         return t
 
 def format_ayah_text(text):
-    """دالة ذكية لفصل البسملة في سطر مستقل لوحدها للحفاظ على شكلها الجمالي"""
-    # البحث عن كلمة الرحيم مع مسافة بعدها لفصل البسملة
-    if "ٱلرَّحِيمِ" in text[:45] and "بِسۡمِ" in text[:15]:
-        idx = text.find("ٱلرَّحِيمِ") + len("ٱلرَّحِيمِ")
-        if idx < len(text) and text[idx] == ' ':
-            return text[:idx] + "\n" + text[idx+1:]
-    elif "الرَّحِيمِ" in text[:45] and "بِسْمِ" in text[:15]:
-        idx = text.find("الرَّحِيمِ") + len("الرَّحِيمِ")
-        if idx < len(text) and text[idx] == ' ':
-            return text[:idx] + "\n" + text[idx+1:]
+    """دالة قوية جداً لفصل البسملة عن الآية الأولى أياً كان نوع التشكيل"""
+    # نتأكد إن الآية بتبدأ بالبسملة
+    if text.startswith("بِسۡمِ") or text.startswith("بِسْمِ"):
+        # نبحث عن كلمة "الرحيم" بالمسافة اللي بعدها في جميع الروايات
+        targets = ["ٱلرَّحِيمِ ", "الرَّحِيمِ ", "الرحيم "]
+        for target in targets:
+            if target in text[:60]: # نبحث في أول 60 حرف فقط لضمان الدقة
+                # نستبدل المسافة بـ سطر جديد \n
+                return text.replace(target, target.strip() + "\n", 1)
     return text
 
 def youtube_authenticate():
@@ -84,11 +84,8 @@ def build_shorts_video():
 
     # --- اختيار السورة ---
     s_id = random.randint(1, 114)
-    # جلب الصوت
     res_audio = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-    # جلب النص بالرسم العثماني المليء بالتشكيل
     res_text = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-uthmani").json()['data']
-    # جلب الترجمة
     res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
     
     s_name = res_text['name']
@@ -111,7 +108,7 @@ def build_shorts_video():
         clip = mp.AudioFileClip(f_path)
         audio_clips.append(clip)
         
-        # معالجة النص العربي قبل إضافته (لفصل البسملة)
+        # معالجة النص العربي لفصل البسملة فوراً
         formatted_ar_text = format_ayah_text(a_txt['text'])
         text_parts_ar.append(formatted_ar_text)
         
@@ -197,7 +194,6 @@ def build_shorts_video():
         box_draw.rounded_rectangle([BOX_X, BOX_Y, BOX_X + BOX_W, BOX_Y + BOX_H], radius=30, fill=(0,0,0,BOX_OPACITY))
         box_bg_clip = mp.ImageClip(np.array(box_canvas)).set_duration(dur)
 
-        # زيادة العرض عشان التشكيل بياخد مساحة من الحروف برمجياً
         lines = textwrap.wrap(full_text, width=50)
         line_h = 95
         text_img_h = (len(lines) + 2) * line_h
@@ -206,7 +202,6 @@ def build_shorts_video():
         d_t = ImageDraw.Draw(txt_img)
 
         for i, line in enumerate(lines):
-            # تخفيف التحديد الأسود لـ 2
             d_t.text((BOX_W/2, i*line_h + 80), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
 
         raw_txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
@@ -241,28 +236,24 @@ def build_shorts_video():
             d = ImageDraw.Draw(img)
             
             ar_lines = []
-            # فصلنا الأسطر يدوياً عشان لو فيه بسملة تترسم لوحدها في سطر
+            # التقسيم السحري هنا: لو فيه سطر جديد (\n) بسبب البسملة، هيفصلهم كأنهم جملتين مستقلتين
             for part in text_parts_ar[i].split('\n'):
                 if part.strip():
-                    # العرض 55 عشان الكلمات اللي فيها تشكيل كتير ماتتقطعش بشكل غريب
                     ar_lines.extend(textwrap.wrap(part, width=55))
                     
             en_text_clean = text_parts_en[i].strip()
             en_lines = textwrap.wrap(en_text_clean, width=45)
             
-            # حسبة ديناميكية لسنترة الكلام في نص الشاشة بالضبط
             total_text_height = (len(ar_lines) * 80) + 25 + (len(en_lines) * 40)
             y_offset = (1280 - total_text_height) / 2
             
             for line in ar_lines:
-                # تخفيف التحديد الأسود لـ 2 بدلاً من 4
                 d.text((360, y_offset), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
                 y_offset += 80
                 
             y_offset += 25 
             
             for line in en_lines:
-                # تخفيف التحديد الأسود لـ 1 بدلاً من 2
                 d.text((360, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=1, stroke_fill="black")
                 y_offset += 40
             
