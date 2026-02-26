@@ -41,22 +41,28 @@ FONT_PATH_AR = "Amiri-Regular.ttf"
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
 def download_fonts():
-    """تحميل الخطوط تلقائياً لو مش موجودة"""
+    """تحميل الخطوط بروابط مباشرة وصحيحة 100% من سيرفرات جوجل"""
     fonts = {
-        FONT_PATH_AR: "https://github.com/googlefonts/amiri/raw/main/fonts/ttf/Amiri-Regular.ttf",
-        FONT_PATH_EN: "https://github.com/google/fonts/raw/main/apache/roboto/static/Roboto-Regular.ttf"
+        # روابط Raw مباشرة لتجنب خطأ 404
+        FONT_PATH_AR: "https://raw.githubusercontent.com/google/fonts/main/ofl/amiri/Amiri-Regular.ttf",
+        FONT_PATH_EN: "https://raw.githubusercontent.com/google/fonts/main/apache/roboto/static/Roboto-Regular.ttf"
     }
     for font_name, url in fonts.items():
         if not os.path.exists(font_name):
             print(f"⬇️ جاري تحميل الخط: {font_name} ...")
             try:
-                response = requests.get(url)
+                response = requests.get(url, timeout=15)
                 response.raise_for_status()
                 with open(font_name, 'wb') as f:
                     f.write(response.content)
                 print(f"✅ تم تحميل {font_name} بنجاح!")
             except Exception as e:
                 print(f"🔥 خطأ في تحميل {font_name}: {e}")
+                
+    # التأكد من وجود الخطوط لمنع ظهور المربعات وخطأ latin-1
+    if not os.path.exists(FONT_PATH_AR) or not os.path.exists(FONT_PATH_EN):
+        print("❌ فشل تحميل الخطوط. سيتم إيقاف السكربت لتجنب خروج فيديو بمربعات غير مفهومة.")
+        sys.exit(1)
 
 def process_ar(t):
     try:
@@ -75,7 +81,7 @@ def youtube_authenticate():
 def build_shorts_video():
     print("🚀 [1/4] تحضير الموارد...")
     
-    # التأكد من وجود الخطوط وتحميلها
+    # تحميل الخطوط أولاً
     download_fonts()
 
     # --- اختيار السورة ---
@@ -87,7 +93,7 @@ def build_shorts_video():
     all_ayahs_ar = res_ar['ayahs']
     all_ayahs_en = res_en['ayahs']
 
-    # --- اختيار ستايل الفيديو (القديم أو الجديد) ---
+    # --- اختيار ستايل الفيديو ---
     VIDEO_STYLE = random.choice(['scrolling', 'static_sync'])
     print(f"🎨 الستايل المختار لهذا الفيديو: {VIDEO_STYLE}")
 
@@ -116,7 +122,7 @@ def build_shorts_video():
                 text_parts_en.pop()
             break
     
-    # حل مشكلة التقطيع بدمج الصوت مع تداخل بسيط
+    # دمج الصوت مع تداخل لمنع التقطيع
     overlap_sec = 0.15
     starts = [0]
     for clip in audio_clips[:-1]:
@@ -173,21 +179,14 @@ def build_shorts_video():
 
     print(f"⚙️ [2/4] المونتاج...")
 
-    # تجهيز الخلفية
     bg_source = mp.VideoFileClip("bg_v.mp4").resize(height=1280).crop(x1=0, y1=0, width=720, height=1280)
     bg = loop(bg_source, duration=dur)
     dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.4)
 
-    # تجهيز الخطوط للأشكال
-    try:
-        font_ar = ImageFont.truetype(FONT_PATH_AR, 60) 
-        font_en = ImageFont.truetype(FONT_PATH_EN, 30)
-        font_s = ImageFont.truetype(FONT_PATH_AR, 90)
-    except OSError:
-        print("⚠️ خطأ: الخطوط لم تحمل بشكل صحيح، سيتم استخدام الخط الافتراضي.")
-        font_ar = ImageFont.load_default()
-        font_en = ImageFont.load_default()
-        font_s = ImageFont.load_default()
+    # تعيين الخطوط
+    font_ar = ImageFont.truetype(FONT_PATH_AR, 60) 
+    font_en = ImageFont.truetype(FONT_PATH_EN, 30)
+    font_s = ImageFont.truetype(FONT_PATH_AR, 90)
 
     overlays = []
 
@@ -218,7 +217,6 @@ def build_shorts_video():
         moving_txt = raw_txt_clip.set_position(scroll_func)
         text_container = mp.CompositeVideoClip([moving_txt], size=(BOX_W, BOX_H)).set_position((BOX_X, BOX_Y))
 
-        # عنوان السورة في الجزء العلوي للستايل القديم
         title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
         title_draw = ImageDraw.Draw(title_canvas)
         title_draw.text((360, BOX_Y - 80), process_ar(s_name), font=font_s, fill="white", anchor="mm", stroke_width=5, stroke_fill="black")
@@ -260,7 +258,6 @@ def build_shorts_video():
             
         final_text_overlay = mp.CompositeVideoClip(text_clips, size=(720,1280))
         
-        # عنوان السورة في الجزء العلوي للستايل الجديد
         title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
         title_draw = ImageDraw.Draw(title_canvas)
         title_draw.text((360, 200), process_ar(s_name), font=font_s, fill="white", anchor="mm", stroke_width=5, stroke_fill="black")
@@ -268,7 +265,6 @@ def build_shorts_video():
         
         overlays.extend([final_text_overlay, title_clip])
 
-    # الترتيب النهائي للفيديو
     final = mp.CompositeVideoClip([bg, dark] + overlays).set_audio(final_audio)
 
     print("⏳ [3/4] الرندر...")
