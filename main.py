@@ -37,18 +37,37 @@ def mark_uploaded_today():
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 AUDIO_EDITION = 'ar.alafasy'
 
-# أسماء ملفات الخطوط اللي إنت رفعتها على GitHub
 FONT_PATH_AR = "Amiri-Regular.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
+# ================== ضبط مكتبة العربي للحفاظ على التشكيل ==================
+reshaper_config = {
+    'delete_harakat': False, # دي أهم نقطة عشان التشكيل يفضل موجود
+    'support_ligatures': True,
+    'delete_tatweel': False
+}
+reshaper = arabic_reshaper.ArabicReshaper(configuration=reshaper_config)
+
 def process_ar(t):
     try:
-        reshaped = arabic_reshaper.reshape(t)
+        reshaped = reshaper.reshape(t)
         bidi_text = get_display(reshaped)
-        # رجعنا [::-1] عشان يعكس النص ويترسم مظبوط من اليمين للشمال
         return bidi_text[::-1]
     except:
         return t
+
+def format_ayah_text(text):
+    """دالة ذكية لفصل البسملة في سطر مستقل لوحدها للحفاظ على شكلها الجمالي"""
+    # البحث عن كلمة الرحيم مع مسافة بعدها لفصل البسملة
+    if "ٱلرَّحِيمِ" in text[:45] and "بِسۡمِ" in text[:15]:
+        idx = text.find("ٱلرَّحِيمِ") + len("ٱلرَّحِيمِ")
+        if idx < len(text) and text[idx] == ' ':
+            return text[:idx] + "\n" + text[idx+1:]
+    elif "الرَّحِيمِ" in text[:45] and "بِسْمِ" in text[:15]:
+        idx = text.find("الرَّحِيمِ") + len("الرَّحِيمِ")
+        if idx < len(text) and text[idx] == ' ':
+            return text[:idx] + "\n" + text[idx+1:]
+    return text
 
 def youtube_authenticate():
     TOKEN_B64 = os.environ.get("TOKEN_BASE64")
@@ -59,21 +78,21 @@ def youtube_authenticate():
 def build_shorts_video():
     print("🚀 [1/4] تحضير الموارد...")
     
-    # التأكد من إن الخطوط موجودة فعلاً قبل ما نكمل
     if not os.path.exists(FONT_PATH_AR) or not os.path.exists(FONT_PATH_EN):
-        print(f"❌ خطأ: ملفات الخطوط غير موجودة! يرجى التأكد من رفع {FONT_PATH_AR} و {FONT_PATH_EN} في نفس مسار السكربت.")
+        print(f"❌ خطأ: ملفات الخطوط غير موجودة!")
         sys.exit(1)
 
     # --- اختيار السورة ---
     s_id = random.randint(1, 114)
-    res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
+    # جلب الصوت
+    res_audio = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
+    # جلب النص بالرسم العثماني المليء بالتشكيل
+    res_text = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-uthmani").json()['data']
+    # جلب الترجمة
     res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
     
-    s_name = res_ar['name']
-    all_ayahs_ar = res_ar['ayahs']
-    all_ayahs_en = res_en['ayahs']
-
-    # --- اختيار ستايل الفيديو ---
+    s_name = res_text['name']
+    
     VIDEO_STYLE = random.choice(['scrolling', 'static_sync'])
     print(f"🎨 الستايل المختار لهذا الفيديو: {VIDEO_STYLE}")
 
@@ -84,14 +103,18 @@ def build_shorts_video():
     current_duration = 0
     TARGET_DURATION = 50 
 
-    for i, (a_ar, a_en) in enumerate(zip(all_ayahs_ar, all_ayahs_en)):
+    for i, (a_aud, a_txt, a_en) in enumerate(zip(res_audio['ayahs'], res_text['ayahs'], res_en['ayahs'])):
         f_path = f"temp_{i}.mp3"
         with open(f_path, 'wb') as f:
-            f.write(requests.get(a_ar['audio']).content)
+            f.write(requests.get(a_aud['audio']).content)
         
         clip = mp.AudioFileClip(f_path)
         audio_clips.append(clip)
-        text_parts_ar.append(a_ar['text'])
+        
+        # معالجة النص العربي قبل إضافته (لفصل البسملة)
+        formatted_ar_text = format_ayah_text(a_txt['text'])
+        text_parts_ar.append(formatted_ar_text)
+        
         text_parts_en.append(a_en['text'])
         current_duration += clip.duration
 
@@ -102,7 +125,6 @@ def build_shorts_video():
                 text_parts_en.pop()
             break
     
-    # دمج الصوت مع تداخل لمنع التقطيع بين الآيات
     overlap_sec = 0.15
     starts = [0]
     for clip in audio_clips[:-1]:
@@ -115,7 +137,7 @@ def build_shorts_video():
     dur = min(59, final_audio.duration)
     final_audio = final_audio.subclip(0, dur)
     
-    full_text = " ۞ ".join(text_parts_ar)
+    full_text = " ۞ ".join([t.replace('\n', ' ') for t in text_parts_ar])
 
     # --- اختيار الخلفية ---
     print("🎨 جاري اختيار خلفية متنوعة...")
@@ -163,7 +185,6 @@ def build_shorts_video():
     bg = loop(bg_source, duration=dur)
     dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.4)
 
-    # تعيين الخطوط
     font_ar = ImageFont.truetype(FONT_PATH_AR, 60) 
     font_en = ImageFont.truetype(FONT_PATH_EN, 30)
     font_s = ImageFont.truetype(FONT_PATH_AR, 90)
@@ -176,7 +197,8 @@ def build_shorts_video():
         box_draw.rounded_rectangle([BOX_X, BOX_Y, BOX_X + BOX_W, BOX_Y + BOX_H], radius=30, fill=(0,0,0,BOX_OPACITY))
         box_bg_clip = mp.ImageClip(np.array(box_canvas)).set_duration(dur)
 
-        lines = textwrap.wrap(full_text, width=28)
+        # زيادة العرض عشان التشكيل بياخد مساحة من الحروف برمجياً
+        lines = textwrap.wrap(full_text, width=50)
         line_h = 95
         text_img_h = (len(lines) + 2) * line_h
         
@@ -184,6 +206,7 @@ def build_shorts_video():
         d_t = ImageDraw.Draw(txt_img)
 
         for i, line in enumerate(lines):
+            # تخفيف التحديد الأسود لـ 2
             d_t.text((BOX_W/2, i*line_h + 80), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
 
         raw_txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
@@ -199,7 +222,7 @@ def build_shorts_video():
 
         title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
         title_draw = ImageDraw.Draw(title_canvas)
-        title_draw.text((360, BOX_Y - 80), process_ar(s_name), font=font_s, fill="white", anchor="mm", stroke_width=5, stroke_fill="black")
+        title_draw.text((360, BOX_Y - 80), process_ar(s_name), font=font_s, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
         title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
 
         overlays.extend([box_bg_clip, text_container, title_clip])
@@ -217,22 +240,30 @@ def build_shorts_video():
             img = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
             d = ImageDraw.Draw(img)
             
-            ar_lines = textwrap.wrap(text_parts_ar[i], width=26)
+            ar_lines = []
+            # فصلنا الأسطر يدوياً عشان لو فيه بسملة تترسم لوحدها في سطر
+            for part in text_parts_ar[i].split('\n'):
+                if part.strip():
+                    # العرض 55 عشان الكلمات اللي فيها تشكيل كتير ماتتقطعش بشكل غريب
+                    ar_lines.extend(textwrap.wrap(part, width=55))
+                    
             en_text_clean = text_parts_en[i].strip()
             en_lines = textwrap.wrap(en_text_clean, width=45)
             
-            y_offset = 550 - (len(ar_lines) * 20) 
+            # حسبة ديناميكية لسنترة الكلام في نص الشاشة بالضبط
+            total_text_height = (len(ar_lines) * 80) + 25 + (len(en_lines) * 40)
+            y_offset = (1280 - total_text_height) / 2
             
-            # رسم الآية العربية
             for line in ar_lines:
-                d.text((360, y_offset), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=4, stroke_fill="black")
+                # تخفيف التحديد الأسود لـ 2 بدلاً من 4
+                d.text((360, y_offset), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
                 y_offset += 80
                 
             y_offset += 25 
             
-            # رسم الترجمة الإنجليزية (بدون معالجة العربي)
             for line in en_lines:
-                d.text((360, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=2, stroke_fill="black")
+                # تخفيف التحديد الأسود لـ 1 بدلاً من 2
+                d.text((360, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=1, stroke_fill="black")
                 y_offset += 40
             
             txt_clip = mp.ImageClip(np.array(img)).set_start(clip_start).set_duration(clip_dur).crossfadein(0.2).crossfadeout(0.2)
@@ -242,7 +273,7 @@ def build_shorts_video():
         
         title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
         title_draw = ImageDraw.Draw(title_canvas)
-        title_draw.text((360, 200), process_ar(s_name), font=font_s, fill="white", anchor="mm", stroke_width=5, stroke_fill="black")
+        title_draw.text((360, 200), process_ar(s_name), font=font_s, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
         title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
         
         overlays.extend([final_text_overlay, title_clip])
