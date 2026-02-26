@@ -37,32 +37,9 @@ def mark_uploaded_today():
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 AUDIO_EDITION = 'ar.alafasy'
 
+# أسماء ملفات الخطوط اللي انت هترفعها في نفس المسار
 FONT_PATH_AR = "Amiri-Regular.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
-
-def download_fonts():
-    """تحميل الخطوط بروابط مباشرة وصحيحة 100% من سيرفرات جوجل"""
-    fonts = {
-        # روابط Raw مباشرة لتجنب خطأ 404
-        FONT_PATH_AR: "https://raw.githubusercontent.com/google/fonts/main/ofl/amiri/Amiri-Regular.ttf",
-        FONT_PATH_EN: "https://raw.githubusercontent.com/google/fonts/main/apache/roboto/static/Roboto-Regular.ttf"
-    }
-    for font_name, url in fonts.items():
-        if not os.path.exists(font_name):
-            print(f"⬇️ جاري تحميل الخط: {font_name} ...")
-            try:
-                response = requests.get(url, timeout=15)
-                response.raise_for_status()
-                with open(font_name, 'wb') as f:
-                    f.write(response.content)
-                print(f"✅ تم تحميل {font_name} بنجاح!")
-            except Exception as e:
-                print(f"🔥 خطأ في تحميل {font_name}: {e}")
-                
-    # التأكد من وجود الخطوط لمنع ظهور المربعات وخطأ latin-1
-    if not os.path.exists(FONT_PATH_AR) or not os.path.exists(FONT_PATH_EN):
-        print("❌ فشل تحميل الخطوط. سيتم إيقاف السكربت لتجنب خروج فيديو بمربعات غير مفهومة.")
-        sys.exit(1)
 
 def process_ar(t):
     try:
@@ -81,8 +58,10 @@ def youtube_authenticate():
 def build_shorts_video():
     print("🚀 [1/4] تحضير الموارد...")
     
-    # تحميل الخطوط أولاً
-    download_fonts()
+    # التأكد من إنك رفعت الخطوط فعلاً قبل ما نكمل
+    if not os.path.exists(FONT_PATH_AR) or not os.path.exists(FONT_PATH_EN):
+        print(f"❌ خطأ: ملفات الخطوط غير موجودة! يرجى رفع {FONT_PATH_AR} و {FONT_PATH_EN} في نفس المسار.")
+        sys.exit(1)
 
     # --- اختيار السورة ---
     s_id = random.randint(1, 114)
@@ -122,7 +101,7 @@ def build_shorts_video():
                 text_parts_en.pop()
             break
     
-    # دمج الصوت مع تداخل لمنع التقطيع
+    # دمج الصوت مع تداخل لمنع التقطيع (Crossfade / Overlap)
     overlap_sec = 0.15
     starts = [0]
     for clip in audio_clips[:-1]:
