@@ -33,16 +33,36 @@ def mark_uploaded_today():
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         f.write(today_str())
 
-# ================== الإعدادات ==================
+# ================== الإعدادات والخطوط ==================
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 AUDIO_EDITION = 'ar.alafasy'
-FONT_PATH = "ArabicFont.ttf"
+
+FONT_PATH_AR = "Amiri-Regular.ttf" 
+FONT_PATH_EN = "Roboto-Regular.ttf"
+
+def download_fonts():
+    """تحميل الخطوط تلقائياً لو مش موجودة"""
+    fonts = {
+        FONT_PATH_AR: "https://github.com/googlefonts/amiri/raw/main/fonts/ttf/Amiri-Regular.ttf",
+        FONT_PATH_EN: "https://github.com/google/fonts/raw/main/apache/roboto/static/Roboto-Regular.ttf"
+    }
+    for font_name, url in fonts.items():
+        if not os.path.exists(font_name):
+            print(f"⬇️ جاري تحميل الخط: {font_name} ...")
+            try:
+                response = requests.get(url)
+                response.raise_for_status()
+                with open(font_name, 'wb') as f:
+                    f.write(response.content)
+                print(f"✅ تم تحميل {font_name} بنجاح!")
+            except Exception as e:
+                print(f"🔥 خطأ في تحميل {font_name}: {e}")
 
 def process_ar(t):
     try:
         reshaped = arabic_reshaper.reshape(t)
         bidi_text = get_display(reshaped)
-        return bidi_text[::-1]
+        return bidi_text
     except:
         return t
 
@@ -54,23 +74,24 @@ def youtube_authenticate():
 
 def build_shorts_video():
     print("🚀 [1/4] تحضير الموارد...")
+    
+    # التأكد من وجود الخطوط وتحميلها
+    download_fonts()
 
     # --- اختيار السورة ---
     s_id = random.randint(1, 114)
-    # جلب النص العربي والصوت
     res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-    # جلب الترجمة الإنجليزية (Saheeh International)
     res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
     
     s_name = res_ar['name']
     all_ayahs_ar = res_ar['ayahs']
     all_ayahs_en = res_en['ayahs']
 
-    # --- اختيار ستايل الفيديو (القديم أو الجديد حسب الصورة) ---
+    # --- اختيار ستايل الفيديو (القديم أو الجديد) ---
     VIDEO_STYLE = random.choice(['scrolling', 'static_sync'])
     print(f"🎨 الستايل المختار لهذا الفيديو: {VIDEO_STYLE}")
 
-    # --- تجميع الصوت (مع حل مشكلة التقطيع) ---
+    # --- تجميع الصوت ---
     audio_clips = []
     text_parts_ar = []
     text_parts_en = []
@@ -95,7 +116,7 @@ def build_shorts_video():
                 text_parts_en.pop()
             break
     
-    # حل مشكلة التقطيع بدمج الصوت مع تداخل (Overlap) يبلغ 0.15 ثانية
+    # حل مشكلة التقطيع بدمج الصوت مع تداخل بسيط
     overlap_sec = 0.15
     starts = [0]
     for clip in audio_clips[:-1]:
@@ -157,10 +178,20 @@ def build_shorts_video():
     bg = loop(bg_source, duration=dur)
     dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.4)
 
+    # تجهيز الخطوط للأشكال
+    try:
+        font_ar = ImageFont.truetype(FONT_PATH_AR, 60) 
+        font_en = ImageFont.truetype(FONT_PATH_EN, 30)
+        font_s = ImageFont.truetype(FONT_PATH_AR, 90)
+    except OSError:
+        print("⚠️ خطأ: الخطوط لم تحمل بشكل صحيح، سيتم استخدام الخط الافتراضي.")
+        font_ar = ImageFont.load_default()
+        font_en = ImageFont.load_default()
+        font_s = ImageFont.load_default()
+
     overlays = []
 
     if VIDEO_STYLE == 'scrolling':
-        # ================== الشكل القديم (صندوق + سكرول) ==================
         box_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
         box_draw = ImageDraw.Draw(box_canvas)
         box_draw.rounded_rectangle([BOX_X, BOX_Y, BOX_X + BOX_W, BOX_Y + BOX_H], radius=30, fill=(0,0,0,BOX_OPACITY))
@@ -172,10 +203,9 @@ def build_shorts_video():
         
         txt_img = Image.new('RGBA', (BOX_W, text_img_h), (0, 0, 0, 0))
         d_t = ImageDraw.Draw(txt_img)
-        font_a = ImageFont.truetype(FONT_PATH, 48)
 
         for i, line in enumerate(lines):
-            d_t.text((BOX_W/2, i*line_h + 80), process_ar(line), font=font_a, fill="white", anchor="mm")
+            d_t.text((BOX_W/2, i*line_h + 80), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
 
         raw_txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
 
@@ -188,20 +218,16 @@ def build_shorts_video():
         moving_txt = raw_txt_clip.set_position(scroll_func)
         text_container = mp.CompositeVideoClip([moving_txt], size=(BOX_W, BOX_H)).set_position((BOX_X, BOX_Y))
 
-        # عنوان السورة
+        # عنوان السورة في الجزء العلوي للستايل القديم
         title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
         title_draw = ImageDraw.Draw(title_canvas)
-        font_s = ImageFont.truetype(FONT_PATH, 90)
         title_draw.text((360, BOX_Y - 80), process_ar(s_name), font=font_s, fill="white", anchor="mm", stroke_width=5, stroke_fill="black")
         title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
 
         overlays.extend([box_bg_clip, text_container, title_clip])
 
     else:
-        # ================== الشكل الجديد (آية بآية متزامنة) ==================
         text_clips = []
-        font_ar = ImageFont.truetype(FONT_PATH, 55)
-        font_en = ImageFont.truetype(FONT_PATH, 30) # يمكنك استخدام خط إنجليزي مختلف هنا إذا أردت
 
         for i in range(len(audio_clips)):
             clip_start = starts[i]
@@ -214,28 +240,33 @@ def build_shorts_video():
             d = ImageDraw.Draw(img)
             
             ar_lines = textwrap.wrap(text_parts_ar[i], width=26)
-            en_lines = textwrap.wrap(text_parts_en[i], width=45)
+            en_text_clean = text_parts_en[i].strip()
+            en_lines = textwrap.wrap(en_text_clean, width=45)
             
-            y_offset = 550 - (len(ar_lines) * 20) # ضبط الارتفاع ليكون في المنتصف تقريباً
+            y_offset = 550 - (len(ar_lines) * 20) 
             
-            # رسم الآية بالعربي
             for line in ar_lines:
-                d.text((360, y_offset), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=2, stroke_fill="black")
-                y_offset += 75
+                d.text((360, y_offset), process_ar(line), font=font_ar, fill="white", anchor="mm", stroke_width=4, stroke_fill="black")
+                y_offset += 80
                 
-            y_offset += 25 # مسافة بين العربي والإنجليزي
+            y_offset += 25 
             
-            # رسم الترجمة
             for line in en_lines:
-                d.text((360, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=1, stroke_fill="black")
+                d.text((360, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=2, stroke_fill="black")
                 y_offset += 40
             
-            # إنشاء كليب الآية وإضافة تأثير تلاشي ناعم (Crossfade)
             txt_clip = mp.ImageClip(np.array(img)).set_start(clip_start).set_duration(clip_dur).crossfadein(0.2).crossfadeout(0.2)
             text_clips.append(txt_clip)
             
         final_text_overlay = mp.CompositeVideoClip(text_clips, size=(720,1280))
-        overlays.append(final_text_overlay)
+        
+        # عنوان السورة في الجزء العلوي للستايل الجديد
+        title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
+        title_draw = ImageDraw.Draw(title_canvas)
+        title_draw.text((360, 200), process_ar(s_name), font=font_s, fill="white", anchor="mm", stroke_width=5, stroke_fill="black")
+        title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
+        
+        overlays.extend([final_text_overlay, title_clip])
 
     # الترتيب النهائي للفيديو
     final = mp.CompositeVideoClip([bg, dark] + overlays).set_audio(final_audio)
