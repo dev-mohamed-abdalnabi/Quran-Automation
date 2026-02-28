@@ -1,10 +1,10 @@
 moviepy==1.0.3
+Pillow==9.5.0
+numpy==1.26.4
 arabic-reshaper
 python-bidi
 proglog
 google-api-python-client
 google-auth-oauthlib
 requests
-numpy
-pillow
 imageio-ffmpeg
