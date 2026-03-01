@@ -10,11 +10,14 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# ================== إعدادات الأبعاد ==================
-BOX_X = 50
-BOX_Y = 280
-BOX_W = 620
-BOX_H = 750
+# ================== إعدادات الأبعاد الجديدة (4K) ==================
+WIDTH = 2160
+HEIGHT = 3840
+
+BOX_X = 150
+BOX_Y = 840
+BOX_W = 1860
+BOX_H = 2250
 BOX_OPACITY = 160
 
 # ================== سجل يومي ==================
@@ -40,34 +43,19 @@ AUDIO_EDITION = 'ar.alafasy'
 FONT_PATH_AR = "Amiri-Regular.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
-# ================== إعدادات العربي (قديم وجديد) ==================
-# 1. إعدادات الشكل القديم (بدون تشكيل عشان المربع)
-reshaper_old = arabic_reshaper.ArabicReshaper(configuration={
-    'delete_harakat': True, 
-    'support_ligatures': True
-})
-
-# 2. إعدادات الشكل الجديد (بالتشكيل)
-reshaper_new = arabic_reshaper.ArabicReshaper(configuration={
-    'delete_harakat': False,
-    'support_ligatures': True
-})
+reshaper_old = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': True, 'support_ligatures': True})
+reshaper_new = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
 
 def process_ar_old(t):
-    try:
-        return get_display(reshaper_old.reshape(t))[::-1]
-    except:
-        return t
+    try: return get_display(reshaper_old.reshape(t))[::-1]
+    except: return t
 
 def process_ar_new(t):
-    try:
-        return get_display(reshaper_new.reshape(t))[::-1]
-    except:
-        return t
+    try: return get_display(reshaper_new.reshape(t))[::-1]
+    except: return t
 
 # ================== دوال مساعدة ==================
 def safe_wrap(text, width):
-    """دالة ذكية لتقسيم السطور بدون ما تفصل الحروف عن التشكيل"""
     words = text.split()
     lines = []
     current_line = []
@@ -77,16 +65,13 @@ def safe_wrap(text, width):
             current_line.append(word)
             current_length += len(word) + 1
         else:
-            if current_line:
-                lines.append(" ".join(current_line))
+            if current_line: lines.append(" ".join(current_line))
             current_line = [word]
             current_length = len(word) + 1
-    if current_line:
-        lines.append(" ".join(current_line))
+    if current_line: lines.append(" ".join(current_line))
     return lines
 
 def format_ayah_text(text):
-    """فصل البسملة بشكل صحيح"""
     if text.startswith("بِسْمِ اللَّهِ"):
         targets = ["الرَّحِيمِ ", "الرحيم "]
         for target in targets:
@@ -95,14 +80,12 @@ def format_ayah_text(text):
     return text
 
 def draw_text_with_shadow(draw, pos, text, font, fill_color):
-    """رسم النص بظل/تحديد يدوي لمنع تشوه التشكيل اللي بيسببه stroke_width"""
     x, y = pos
     shadow_color = "black"
-    # عمل تحديد يدوي 2 بكسل من كل الاتجاهات
-    offsets = [(2,2), (-2,2), (2,-2), (-2,-2), (0,2), (0,-2), (2,0), (-2,0)]
+    # تكبير الظل ليتناسب مع جودة 4K
+    offsets = [(6,6), (-6,6), (6,-6), (-6,-6), (0,6), (0,-6), (6,0), (-6,0)]
     for ox, oy in offsets:
         draw.text((x+ox, y+oy), text, font=font, fill=shadow_color, anchor="mm")
-    # رسم النص الأساسي فوق التحديد
     draw.text((x, y), text, font=font, fill=fill_color, anchor="mm")
 
 def youtube_authenticate():
@@ -112,24 +95,20 @@ def youtube_authenticate():
     return build('youtube', 'v3', credentials=creds)
 
 def build_shorts_video():
-    print("🚀 [1/4] تحضير الموارد...")
+    print("🚀 [1/4] تحضير الموارد لجودة 4K...")
     
     if not os.path.exists(FONT_PATH_AR) or not os.path.exists(FONT_PATH_EN):
         print(f"❌ خطأ: ملفات الخطوط غير موجودة! تأكد من رفع Amiri-Regular.ttf و Roboto-Regular.ttf")
         sys.exit(1)
 
-    # --- اختيار السورة ---
     s_id = random.randint(1, 114)
     res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
     res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
-    
     s_name = res_ar['name']
     
-    # === اختيار الستايل (القديم أو الجديد عشوائياً) ===
     VIDEO_STYLE = random.choice(['scrolling', 'static_sync'])
     print(f"🎨 الستايل المختار لهذا الفيديو: {VIDEO_STYLE}")
 
-    # --- تجميع الصوت ---
     audio_clips = []
     text_parts_ar = []
     text_parts_en = []
@@ -144,13 +123,11 @@ def build_shorts_video():
         clip = mp.AudioFileClip(f_path)
         audio_clips.append(clip)
         
-        # معالجة النص
         formatted_ar_text = format_ayah_text(a_ar['text'])
         text_parts_ar.append(formatted_ar_text)
         text_parts_en.append(a_en['text'])
         
         current_duration += clip.duration
-
         if current_duration >= TARGET_DURATION:
             if current_duration > 59: 
                 audio_clips.pop()
@@ -158,7 +135,6 @@ def build_shorts_video():
                 text_parts_en.pop()
             break
     
-    # دمج الصوت بسلاسة
     overlap_sec = 0.15
     starts = [0]
     for clip in audio_clips[:-1]:
@@ -171,8 +147,7 @@ def build_shorts_video():
     dur = min(59, final_audio.duration)
     final_audio = final_audio.subclip(0, dur)
 
-    # --- اختيار الخلفية ---
-    print("🎨 جاري اختيار خلفية متنوعة...")
+    print("🎨 جاري اختيار خلفية عالية الجودة...")
     headers = {'Authorization': PEXELS_API_KEY}
     search_queries = ["nature", "sky", "clouds", "mosque", "islamic architecture", "forest", "mountain", "ocean", "waterfall"]
     query = random.choice(search_queries)
@@ -188,8 +163,9 @@ def build_shorts_video():
         chosen_video = random.choice(selection_pool)
         v_url = chosen_video['video_files'][0]['link']
         
+        # محاولة سحب أعلى جودة ممكنة من بيسكلز
         for file in chosen_video['video_files']:
-            if file['height'] >= 1280 and file['height'] <= 2160:
+            if file['height'] >= 2160:
                 v_url = file['link']
                 break
     except Exception as e:
@@ -199,37 +175,37 @@ def build_shorts_video():
     with open("bg_v.mp4", "wb") as f:
         f.write(requests.get(v_url).content)
 
-    print(f"⚙️ [2/4] المونتاج...")
+    print(f"⚙️ [2/4] المونتاج (4K Resolution)...")
 
-    bg_source = mp.VideoFileClip("bg_v.mp4").resize(height=1280).crop(x1=0, y1=0, width=720, height=1280)
+    # تكبير الخلفية لتناسب 4K
+    bg_source = mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT)
     bg = loop(bg_source, duration=dur)
-    dark = mp.ColorClip(size=(720, 1280), color=(0,0,0), duration=dur).set_opacity(0.4)
+    dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.4)
 
-    font_ar = ImageFont.truetype(FONT_PATH_AR, 60) 
-    font_en = ImageFont.truetype(FONT_PATH_EN, 30)
-    font_s = ImageFont.truetype(FONT_PATH_AR, 90)
+    # تكبير الخطوط 3 أضعاف
+    font_ar = ImageFont.truetype(FONT_PATH_AR, 180) 
+    font_en = ImageFont.truetype(FONT_PATH_EN, 90)
+    font_s = ImageFont.truetype(FONT_PATH_AR, 270)
 
     overlays = []
 
     if VIDEO_STYLE == 'scrolling':
-        # ================== الشكل القديم ==================
-        box_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
+        box_canvas = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
         box_draw = ImageDraw.Draw(box_canvas)
-        box_draw.rounded_rectangle([BOX_X, BOX_Y, BOX_X + BOX_W, BOX_Y + BOX_H], radius=30, fill=(0,0,0,BOX_OPACITY))
+        box_draw.rounded_rectangle([BOX_X, BOX_Y, BOX_X + BOX_W, BOX_Y + BOX_H], radius=90, fill=(0,0,0,BOX_OPACITY))
         box_bg_clip = mp.ImageClip(np.array(box_canvas)).set_duration(dur)
 
         full_text_flat = " ۞ ".join([t.replace('\n', ' ') for t in text_parts_ar])
-        lines = safe_wrap(full_text_flat, width=35) # تقسيم السطور للشكل القديم
-        line_h = 95
+        lines = safe_wrap(full_text_flat, width=35) 
+        line_h = 285 # تكبير المسافة بين السطور
         text_img_h = (len(lines) + 2) * line_h
         
         txt_img = Image.new('RGBA', (BOX_W, text_img_h), (0, 0, 0, 0))
         d_t = ImageDraw.Draw(txt_img)
 
         for i, line in enumerate(lines):
-            # استخدام process_ar_old بدون تشكيل
             processed_line = process_ar_old(line)
-            draw_text_with_shadow(d_t, (BOX_W/2, i*line_h + 80), processed_line, font_ar, "white")
+            draw_text_with_shadow(d_t, (BOX_W/2, i*line_h + 240), processed_line, font_ar, "white")
 
         raw_txt_clip = mp.ImageClip(np.array(txt_img)).set_duration(dur)
 
@@ -242,15 +218,14 @@ def build_shorts_video():
         moving_txt = raw_txt_clip.set_position(scroll_func)
         text_container = mp.CompositeVideoClip([moving_txt], size=(BOX_W, BOX_H)).set_position((BOX_X, BOX_Y))
 
-        title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
+        title_canvas = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
         title_draw = ImageDraw.Draw(title_canvas)
-        draw_text_with_shadow(title_draw, (360, BOX_Y - 80), process_ar_old(s_name), font_s, "white")
+        draw_text_with_shadow(title_draw, (WIDTH/2, BOX_Y - 240), process_ar_old(s_name), font_s, "white")
         title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
 
         overlays.extend([box_bg_clip, text_container, title_clip])
 
     else:
-        # ================== الشكل الجديد ==================
         text_clips = []
         for i in range(len(audio_clips)):
             clip_start = starts[i]
@@ -259,48 +234,49 @@ def build_shorts_video():
             
             if clip_dur <= 0: continue
             
-            img = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
+            img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
             d = ImageDraw.Draw(img)
             
             ar_lines = []
             for part in text_parts_ar[i].split('\n'):
                 if part.strip():
-                    ar_lines.extend(safe_wrap(part, width=45)) # استخدام التقسيم الآمن
+                    ar_lines.extend(safe_wrap(part, width=45)) 
                     
             en_text_clean = text_parts_en[i].strip()
             en_lines = safe_wrap(en_text_clean, width=40)
             
-            total_text_height = (len(ar_lines) * 80) + 25 + (len(en_lines) * 40)
-            y_offset = (1280 - total_text_height) / 2
+            # تعديل المسافات لتناسب 4K
+            total_text_height = (len(ar_lines) * 240) + 75 + (len(en_lines) * 120)
+            y_offset = (HEIGHT - total_text_height) / 2
             
             for line in ar_lines:
-                # استخدام process_ar_new بالتشكيل
                 processed_line = process_ar_new(line)
-                draw_text_with_shadow(d, (360, y_offset), processed_line, font_ar, "white")
-                y_offset += 80
+                draw_text_with_shadow(d, (WIDTH/2, y_offset), processed_line, font_ar, "white")
+                y_offset += 240
                 
-            y_offset += 25 
+            y_offset += 75 
             
             for line in en_lines:
-                d.text((360, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=1, stroke_fill="black")
-                y_offset += 40
+                d.text((WIDTH/2, y_offset), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=3, stroke_fill="black")
+                y_offset += 120
             
             txt_clip = mp.ImageClip(np.array(img)).set_start(clip_start).set_duration(clip_dur).crossfadein(0.2).crossfadeout(0.2)
             text_clips.append(txt_clip)
             
-        final_text_overlay = mp.CompositeVideoClip(text_clips, size=(720,1280))
+        final_text_overlay = mp.CompositeVideoClip(text_clips, size=(WIDTH, HEIGHT))
         
-        title_canvas = Image.new('RGBA', (720, 1280), (0, 0, 0, 0))
+        title_canvas = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
         title_draw = ImageDraw.Draw(title_canvas)
-        draw_text_with_shadow(title_draw, (360, 200), process_ar_new(s_name), font_s, "white")
+        draw_text_with_shadow(title_draw, (WIDTH/2, 600), process_ar_new(s_name), font_s, "white")
         title_clip = mp.ImageClip(np.array(title_canvas)).set_duration(dur)
         
         overlays.extend([final_text_overlay, title_clip])
 
     final = mp.CompositeVideoClip([bg, dark] + overlays).set_audio(final_audio)
 
-    print("⏳ [3/4] الرندر...")
-    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="5000k", logger=None, threads=4)
+    print("⏳ [3/4] الرندر (جاري التصدير بجودة 4K، قد يستغرق وقتاً أطول)...")
+    # رفع البت ريت لـ 20000k عشان جودة الـ 4K تظهر صح
+    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="20000k", logger=None, threads=4)
 
     print("📡 [4/4] الرفع...")
     youtube = youtube_authenticate()
