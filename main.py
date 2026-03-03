@@ -47,7 +47,6 @@ AUDIO_EDITIONS = [
     'ar.saoodshuraym',        # سعود الشريم
     'ar.hudhaify'             # الحذيفي
 ]
-AUDIO_EDITION = random.choice(AUDIO_EDITIONS)
 
 FONT_PATH_AR = "Amiri-Regular.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
@@ -96,129 +95,159 @@ def youtube_authenticate():
     return build('youtube', 'v3', credentials=creds)
 
 def build_shorts_video():
-    print(f"🚀 [1/4] تحضير الموارد (القاريء: {AUDIO_EDITION})...")
-    
-    s_id = random.randint(1, 114)
-    res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-    res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
-    s_name = res_ar['name']
-    
-    audio_clips = []
-    text_parts_ar = []
-    text_parts_en = []
-    current_duration = 0
+    max_retries = 5
+    for attempt in range(max_retries):
+        current_audio_edition = random.choice(AUDIO_EDITIONS)
+        s_id = random.randint(1, 114)
+        print(f"🚀 [1/4] تحضير الموارد (المحاولة {attempt+1}/{max_retries} - القاريء: {current_audio_edition})...")
 
-    for i, (a_ar, a_en) in enumerate(zip(res_ar['ayahs'], res_en['ayahs'])):
-        f_path = f"temp_{i}.mp3"
-        with open(f_path, 'wb') as f:
-            f.write(requests.get(a_ar['audio']).content)
+        try:
+            res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{current_audio_edition}").json()['data']
+            res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
+            s_name = res_ar['name']
+        except Exception as e:
+            print(f"⚠️ فشل جلب بيانات السورة أو القارئ: {e}. إعادة المحاولة.")
+            continue
+
+        audio_clips = []
+        text_parts_ar = []
+        text_parts_en = []
+        current_duration = 0
+        all_audio_available = True
+
+        for i, (a_ar, a_en) in enumerate(zip(res_ar['ayahs'], res_en['ayahs'])):
+            if 'audio' not in a_ar or not a_ar['audio']:
+                print(f"⚠️ الآية {a_ar['numberInSurah']} من سورة {s_name} (القاريء: {current_audio_edition}) لا يتوفر لها رابط صوت. إعادة المحاولة بسورة/قارئ آخر.")
+                all_audio_available = False
+                break
+
+            f_path = f"temp_{s_id}_{i}.mp3"
+            try:
+                audio_content = requests.get(a_ar['audio']).content
+                with open(f_path, "wb") as f:
+                    f.write(audio_content)
+            except requests.exceptions.RequestException as e:
+                print(f"⚠️ فشل تحميل الصوت للآية {a_ar['numberInSurah']}: {e}. إعادة المحاولة بسورة/قارئ آخر.")
+                all_audio_available = False
+                break
+            
+            clip = mp.AudioFileClip(f_path)
+            audio_clips.append(clip)
+            text_parts_ar.append(a_ar['text'])
+            text_parts_en.append(a_en['text'])
+            
+            current_duration += clip.duration
+            # التوقف قبل الوصول لـ 59 ثانية لضمان بقاء الفيديو ضمن فئة Shorts
+            if current_duration >= 55: 
+                break # نكسر الحلقة هنا ونستخدم المقاطع التي تم جمعها حتى الآن
+
+        if not all_audio_available:
+            # تنظيف الملفات المؤقتة قبل إعادة المحاولة
+            for f_path in [f"temp_{s_id}_{j}.mp3" for j in range(i)]:
+                if os.path.exists(f_path): os.remove(f_path)
+            continue # إعادة المحاولة بسورة/قارئ آخر
+
+        # --- معالجة الصوت لضمان عدم التقطيع ---
+        selected_audio_clips = []
+        selected_text_parts_ar = []
+        selected_text_parts_en = []
+        current_total_duration = 0.0
+
+        for i, clip in enumerate(audio_clips):
+            if current_total_duration + clip.duration <= 59.0:
+                selected_audio_clips.append(clip)
+                selected_text_parts_ar.append(text_parts_ar[i])
+                selected_text_parts_en.append(text_parts_en[i])
+                current_total_duration += clip.duration
+            else:
+                break
+
+        if not selected_audio_clips:
+            print("خطأ: لم يتم اختيار أي مقاطع صوتية ضمن الحد الزمني. إعادة المحاولة.")
+            continue
+
+        final_audio = mp.concatenate_audioclips(selected_audio_clips)
+        dur = final_audio.duration
+
+        # حساب توقيتات الآيات بدقة
+        starts = [0.0]
+        cumulative_duration = 0.0
+        for clip in selected_audio_clips[:-1]:
+            cumulative_duration += clip.duration
+            starts.append(cumulative_duration)
+
+        # اختيار خلفية (تجنب البشر والحيوانات باستخدام كلمات بحث محددة)
+        headers = {'Authorization': PEXELS_API_KEY}
+        search_queries = ['sky', 'clouds', 'ocean', 'mountains', 'abstract', 'geometric', 'stars', 'galaxy', 'forest', 'rain']
+        query = random.choice(search_queries)
+        v_res = requests.get(f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=15', headers=headers).json()
         
-        clip = mp.AudioFileClip(f_path)
-        audio_clips.append(clip)
-        text_parts_ar.append(a_ar['text'])
-        text_parts_en.append(a_en['text'])
-        
-        current_duration += clip.duration
-        # التوقف قبل الوصول لـ 59 ثانية لضمان بقاء الفيديو ضمن فئة Shorts
-        if current_duration >= 55: break
-
-    # --- معالجة الصوت لضمان عدم التقطيع ---
-    selected_audio_clips = []
-    selected_text_parts_ar = []
-    selected_text_parts_en = []
-    current_total_duration = 0.0
-
-    for i, clip in enumerate(audio_clips):
-        if current_total_duration + clip.duration <= 59.0:
-            selected_audio_clips.append(clip)
-            selected_text_parts_ar.append(text_parts_ar[i])
-            selected_text_parts_en.append(text_parts_en[i])
-            current_total_duration += clip.duration
+        if 'videos' in v_res and v_res['videos']:
+            v_url = random.choice(v_res['videos'])['video_files'][0]['link']
         else:
-            break
+            # رابط احتياطي في حال فشل البحث
+            v_url = "https://player.vimeo.com/external/370371975.sd.mp4?s=6377375686883656868836568688365686883656&profile_id=139&oauth2_token_id=57447761"
+            
+        with open("bg_v.mp4", "wb") as f: f.write(requests.get(v_url).content)
 
-    if not selected_audio_clips:
-        print("خطأ: لم يتم اختيار أي مقاطع صوتية.")
-        return
+        print(f"⚙️ [2/4] المونتاج...")
+        bg = loop(mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT), duration=dur)
+        dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.4)
 
-    final_audio = mp.concatenate_audioclips(selected_audio_clips)
-    dur = final_audio.duration
+        # محاولة تحميل الخطوط، وفي حال عدم وجودها يتم استخدام الخط الافتراضي
+        try:
+            font_ar = ImageFont.truetype(FONT_PATH_AR, 95) 
+            font_en = ImageFont.truetype(FONT_PATH_EN, 45)
+            font_s = ImageFont.truetype(FONT_PATH_AR, 140)
+        except:
+            font_ar = ImageFont.load_default()
+            font_en = ImageFont.load_default()
+            font_s = ImageFont.load_default()
 
-    # حساب توقيتات الآيات بدقة
-    starts = [0.0]
-    cumulative_duration = 0.0
-    for clip in selected_audio_clips[:-1]:
-        cumulative_duration += clip.duration
-        starts.append(cumulative_duration)
+        text_clips = []
+        for i in range(len(selected_audio_clips)):
+            c_start = starts[i]
+            c_end = starts[i+1] if i < len(starts)-1 else dur
+            
+            img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
+            d = ImageDraw.Draw(img)
+            
+            ar_lines = safe_wrap(selected_text_parts_ar[i], width=40)
+            en_lines = safe_wrap(selected_text_parts_en[i], width=35)
+            
+            y_off = (HEIGHT - (len(ar_lines)*130 + 50 + len(en_lines)*60)) / 2
+            for line in ar_lines:
+                draw_text_with_shadow(d, (WIDTH/2, y_off), process_ar_new(line), font_ar, "white")
+                y_off += 130
+            y_off += 50
+            for line in en_lines:
+                d.text((WIDTH/2, y_off), line, font=font_en, fill="#F0F0F0", anchor="mm", stroke_width=2, stroke_fill="black")
+                y_off += 60
+            
+            t_clip = mp.ImageClip(np.array(img)).set_start(c_start).set_end(c_end)
+            text_clips.append(t_clip)
 
-    # اختيار خلفية (تجنب البشر والحيوانات باستخدام كلمات بحث محددة)
-    headers = {'Authorization': PEXELS_API_KEY}
-    search_queries = ['sky', 'clouds', 'ocean', 'mountains', 'abstract', 'geometric', 'stars', 'galaxy', 'forest', 'rain']
-    query = random.choice(search_queries)
-    v_res = requests.get(f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=15', headers=headers).json()
-    
-    if 'videos' in v_res and v_res['videos']:
-        v_url = random.choice(v_res['videos'])['video_files'][0]['link']
-    else:
-        # رابط احتياطي في حال فشل البحث
-        v_url = "https://player.vimeo.com/external/370371975.sd.mp4?s=6377375686883656868836568688365686883656&profile_id=139&oauth2_token_id=57447761"
-        
-    with open("bg_v.mp4", "wb") as f: f.write(requests.get(v_url).content)
+        title_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
+        draw_text_with_shadow(ImageDraw.Draw(title_img), (WIDTH/2, 250), process_ar_new(s_name), font_s, "white")
+        title_clip = mp.ImageClip(np.array(title_img)).set_duration(dur)
 
-    print(f"⚙️ [2/4] المونتاج...")
-    bg = loop(mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT), duration=dur)
-    dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.4)
+        final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips).set_audio(final_audio)
 
-    # محاولة تحميل الخطوط، وفي حال عدم وجودها يتم استخدام الخط الافتراضي
-    try:
-        font_ar = ImageFont.truetype(FONT_PATH_AR, 95) 
-        font_en = ImageFont.truetype(FONT_PATH_EN, 45)
-        font_s = ImageFont.truetype(FONT_PATH_AR, 140)
-    except:
-        font_ar = ImageFont.load_default()
-        font_en = ImageFont.load_default()
-        font_s = ImageFont.load_default()
+        print("⏳ [3/4] رندر سريع (1080p)...")
+        final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="10000k", preset="ultrafast", logger=None, threads=4)
 
-    text_clips = []
-    for i in range(len(selected_audio_clips)):
-        c_start = starts[i]
-        c_end = starts[i+1] if i < len(starts)-1 else dur
-        
-        img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
-        
-        ar_lines = safe_wrap(selected_text_parts_ar[i], width=40)
-        en_lines = safe_wrap(selected_text_parts_en[i], width=35)
-        
-        y_off = (HEIGHT - (len(ar_lines)*130 + 50 + len(en_lines)*60)) / 2
-        for line in ar_lines:
-            draw_text_with_shadow(d, (WIDTH/2, y_off), process_ar_new(line), font_ar, "white")
-            y_off += 130
-        y_off += 50
-        for line in en_lines:
-            d.text((WIDTH/2, y_off), line, font=font_en, fill="#F0F0F0", anchor="mm", stroke_width=2, stroke_fill="black")
-            y_off += 60
-        
-        t_clip = mp.ImageClip(np.array(img)).set_start(c_start).set_end(c_end)
-        text_clips.append(t_clip)
+        print("📡 [4/4] الرفع...")
+        try:
+            youtube = youtube_authenticate()
+            body = {'snippet': {'title': f'تلاوة خاشعة - {s_name} #shorts #quran', 'description': f'سورة {s_name}', 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
+            youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)).execute()
+            print(f"✅ تم بنجاح بجودة 1080p!")
+            return # تم بنجاح، نخرج من الدالة
+        except Exception as e:
+            print(f"⚠️ فشل الرفع لليوتيوب: {e}. إعادة المحاولة.")
+            # لا نخرج هنا، بل نترك الحلقة تستمر للمحاولة التالية إذا كانت هناك محاولات متبقية
 
-    title_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
-    draw_text_with_shadow(ImageDraw.Draw(title_img), (WIDTH/2, 250), process_ar_new(s_name), font_s, "white")
-    title_clip = mp.ImageClip(np.array(title_img)).set_duration(dur)
-
-    final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips).set_audio(final_audio)
-
-    print("⏳ [3/4] رندر سريع (1080p)...")
-    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="10000k", preset="ultrafast", logger=None, threads=4)
-
-    print("📡 [4/4] الرفع...")
-    try:
-        youtube = youtube_authenticate()
-        body = {'snippet': {'title': f'تلاوة خاشعة - {s_name} #shorts #quran', 'description': f'سورة {s_name}', 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
-        youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)).execute()
-        print(f"✅ تم بنجاح بجودة 1080p!")
-    except Exception as e:
-        print(f"⚠️ فشل الرفع لليوتيوب: {e}")
+    print("❌ فشلت جميع المحاولات لإنشاء الفيديو ورفعه.")
 
 if __name__ == "__main__":
     if not is_uploaded_today() or os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
@@ -226,4 +255,4 @@ if __name__ == "__main__":
             build_shorts_video()
             mark_uploaded_today()
         except Exception as e:
-            print("🔥 خطأ:", e); sys.exit(1)
+            print("🔥 خطأ عام:", e); sys.exit(1)
