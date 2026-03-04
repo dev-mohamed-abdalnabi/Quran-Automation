@@ -39,7 +39,7 @@ RECITERS_DATA = [
     }
 ]
 
-# ================== عناوين ووصف يوتيوب متغير (إبداعي) ==================
+# ================== عناوين ووصف يوتيوب متغير ومبدع ==================
 YOUTUBE_TITLES = [
     "تلاوة خاشعة تأسر القلوب من {surah} 🤍 بصوت {reciter} #shorts",
     "عش مع القرآن دقائق - {surah} 🎧 القارئ {reciter} #shorts",
@@ -59,7 +59,7 @@ YOUTUBE_DESCRIPTIONS = [
 
 LOG_FILE = "daily_log.txt"
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
-FONT_PATH_AR = "Thuluth.ttf" # تم التعديل بناءً على طلبك
+FONT_PATH_AR = "Thuluth.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
 reshaper_new = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
@@ -135,10 +135,8 @@ def build_shorts_video():
     
     full_audio_clip = mp.AudioFileClip(full_audio_filename)
     full_duration = full_audio_clip.duration
-    print(f"⏱️ مدة الملف الكامل (مع المقدمة): {full_duration:.2f} ثانية")
-
-    print("🧮 جاري حساب مدة المقدمة (الاستعاذة/البسملة) لقصها...")
     
+    print("🧮 جاري حساب مدة المقدمة لقصها...")
     total_ayahs_duration = 0.0
     ayah_durations = [] 
 
@@ -147,20 +145,14 @@ def build_shorts_video():
         t_file = f"temp_measure_{i}.mp3"
         with open(t_file, 'wb') as f:
             f.write(requests.get(t_url).content)
-        
         temp_clip = mp.AudioFileClip(t_file)
         dur = temp_clip.duration
         temp_clip.close() 
         os.remove(t_file) 
-        
         ayah_durations.append(dur)
         total_ayahs_duration += dur
 
     offset_start = max(0, full_audio_clip.duration - total_ayahs_duration)
-    
-    print(f"✂️ مدة المقدمة المحسوبة: {offset_start:.2f} ثانية (سيتم قصها)")
-
-    print("🎬 تحديد الآيات للفيديو...")
     
     final_video_duration = 0.0
     ayahs_to_render = []
@@ -169,23 +161,18 @@ def build_shorts_video():
     for i, dur in enumerate(ayah_durations):
         if final_video_duration + dur > 59.0:
             break
-            
         ayahs_to_render.append({
             "text_ar": res_ar['ayahs'][i]['text'],
             "text_en": res_en['ayahs'][i]['text'],
             "start": current_cursor,
             "end": current_cursor + dur
         })
-        
         current_cursor += dur
         final_video_duration += dur
 
     final_audio = full_audio_clip.subclip(offset_start, offset_start + final_video_duration)
-    
-    print(f"🔉 الصوت النهائي جاهز: من {offset_start:.2f} إلى {offset_start + final_video_duration:.2f}")
 
     print("⚙️ [5/6] تركيب الفيديو...")
-    
     headers = {'Authorization': PEXELS_API_KEY}
     try:
         v_res = requests.get('https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=15', headers=headers).json()
@@ -200,97 +187,72 @@ def build_shorts_video():
     font_ar = ImageFont.truetype(FONT_PATH_AR, 90)
     font_en = ImageFont.truetype(FONT_PATH_EN, 40)
     
-    # 1. إنشاء مقاطع النصوص (الآيات)
+    # مقاطع النصوص (الآيات)
     text_clips = []
     for item in ayahs_to_render:
         img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
-
         ar_lines = safe_wrap(item['text_ar'], width=38)
         en_lines = safe_wrap(item['text_en'], width=40)
-
         total_h = len(ar_lines)*130 + 50 + len(en_lines)*60
         y = (HEIGHT - total_h) / 2
-
         for line in ar_lines:
             draw_text_with_shadow(d, (WIDTH/2, y), process_ar(line), font_ar, "white")
             y += 130
-        
         y += 40
         for line in en_lines:
             d.text((WIDTH/2, y), line, font=font_en, fill="#DDDDDD", anchor="mm", stroke_width=2, stroke_fill="black")
             y += 60
-
         clip = mp.ImageClip(np.array(img)).set_start(item['start']).set_end(item['end'])
         text_clips.append(clip)
 
-    # 2. إعداد عنوان السورة واسم القارئ (بنفس استايل الصور)
+    # عنوان السورة والقارئ
     t_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
     d_title = ImageDraw.Draw(t_img)
     font_surah_title = ImageFont.truetype(FONT_PATH_AR, 160)
     font_reciter_title = ImageFont.truetype(FONT_PATH_AR, 80)
-    
-    surah_text = process_ar(s_name)
-    reciter_text = process_ar(reciter['name'])
-    
-    # رسم اسم السورة وتحته اسم القارئ في الجزء العلوي
-    draw_text_with_shadow(d_title, (WIDTH/2, 280), surah_text, font_surah_title, "white")
-    draw_text_with_shadow(d_title, (WIDTH/2, 430), reciter_text, font_reciter_title, "white")
-    
+    draw_text_with_shadow(d_title, (WIDTH/2, 280), process_ar(s_name), font_surah_title, "white")
+    draw_text_with_shadow(d_title, (WIDTH/2, 430), process_ar(reciter['name']), font_reciter_title, "white")
     title_clip = mp.ImageClip(np.array(t_img)).set_duration(final_video_duration)
 
-    # 3. إعداد الشريط الصوتي المتحرك (Audio Waveform Visualizer)
+    # الشريط الصوتي المتحرك (حل مشكلة الـ Broadcast)
     def make_waveform_frame(t):
-        img_wave = Image.new('RGBA', (WIDTH, 150), (0, 0, 0, 0))
+        img_wave = Image.new('RGB', (WIDTH, 150), (0, 0, 0)) 
         draw_wave = ImageDraw.Draw(img_wave)
-        center_x = WIDTH // 2
-        center_y = 75
-        num_bars = 45 # عدد الأعمدة أو النقاط
-        bar_width = 4
-        spacing = 12
-        
+        center_x, center_y = WIDTH // 2, 75
+        num_bars, spacing, bar_width = 45, 12, 4
         for i in range(num_bars):
             offset = i - (num_bars // 2)
-            # عمل تأثير القوس (الهرمي) بحيث الموجات في النص أعلى من الأطراف
             envelope = math.exp(-0.015 * (offset ** 2))
-            # حركة الموجة بناء على الوقت (t) لتكون سلسة وجميلة
             val = math.sin(t * 12 + i * 1.5) * math.sin(t * 6 - i)
-            h = int(60 * envelope * abs(val)) + 6 # أقل ارتفاع للعمود
-            
+            h = int(60 * envelope * abs(val)) + 8
             x = center_x + offset * spacing
             draw_wave.rounded_rectangle([(x, center_y - h/2), (x + bar_width, center_y + h/2)], radius=2, fill="white")
-            
         return np.array(img_wave)
 
+    def make_waveform_mask(t):
+        frame = make_waveform_frame(t)
+        return frame[:, :, 0] / 255.0 
+
     wave_clip = mp.VideoClip(make_waveform_frame, duration=final_video_duration)
-    # نضع الشريط الصوتي في الأسفل
-    wave_clip = wave_clip.set_position(('center', HEIGHT - 450))
+    mask_clip = mp.VideoClip(make_waveform_mask, duration=final_video_duration, ismask=True)
+    wave_clip = wave_clip.set_mask(mask_clip).set_position(('center', HEIGHT - 450))
 
-    # التصدير بدمج كل الطبقات
+    # دمج وتصدير
     final = mp.CompositeVideoClip([bg, dark, title_clip, wave_clip] + text_clips).set_audio(final_audio)
-
-    print("⏳ [6/6] جاري الرندر (Full HD)...")
-    final.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None, threads=4)
+    print("⏳ [6/6] جاري الرندر...")
+    final.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None)
     
-    # تنظيف
-    full_audio_clip.close()
-    if os.path.exists("full_surah.mp3"): os.remove("full_surah.mp3")
-
-    # الرفع لليوتيوب بالعناوين الجديدة
-    print("📡 جاري الرفع...")
+    # الرفع
     youtube = youtube_authenticate()
-    
-    # اختيار عنوان ووصف بشكل عشوائي
     final_title = random.choice(YOUTUBE_TITLES).format(surah=s_name, reciter=reciter['name'])
     final_desc = random.choice(YOUTUBE_DESCRIPTIONS).format(surah=s_name, reciter=reciter['name'])
-    
     body = {
         'snippet': {'title': final_title, 'description': final_desc, 'categoryId': '22'},
         'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': False}
     }
-    
     youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final_shorts.mp4", chunksize=-1, resumable=True)).execute()
-    print("✅ تم!")
+    print("✅ تم الرفع بنجاح!")
 
 if __name__ == "__main__":
     if not is_uploaded_today() or os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
