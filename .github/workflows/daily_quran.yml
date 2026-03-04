@@ -2,9 +2,6 @@ name: Daily Quran Auto
 
 on:
   schedule:
-    # التوقيت: 
-    # 3 UTC = الساعة 5:00 فجراً بتوقيت مصر
-    # 3-11 = يفضل يحاول من 5 الفجر لحد 1 الظهر
     - cron: '17,32,47 3-11 * * *'
   workflow_dispatch:
 
@@ -36,7 +33,7 @@ jobs:
       - name: Install Libraries
         run: |
           pip install --upgrade pip
-          pip install moviepy==1.0.3 Pillow==9.5.0 arabic-reshaper python-bidi requests numpy google-api-python-client google-auth-oauthlib
+          pip install moviepy==1.0.3 Pillow==9.5.0 arabic-reshaper python-bidi requests numpy google-api-python-client google-auth-oauthlib scipy
 
       - name: Run Bot
         env:
