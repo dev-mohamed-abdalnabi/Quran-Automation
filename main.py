@@ -1,4 +1,4 @@
-Import os, requests, random, json, base64, sys
+import os, requests, random, json, base64, sys
 from datetime import datetime
 import numpy as np
 import moviepy.editor as mp
