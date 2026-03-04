@@ -1,4 +1,4 @@
-import os, requests, random, json, base64, sys
+import os, requests, random, json, base64, sys, math
 from datetime import datetime
 import numpy as np
 import moviepy.editor as mp
@@ -16,7 +16,6 @@ WIDTH = 1080
 HEIGHT = 1920
 
 # ================== إعدادات القراء ==================
-# نربط الـ API بمصدر الصوت لضمان تطابق النسخ
 RECITERS_DATA = [
     {
         "api_id": "ar.alafasy", 
@@ -40,11 +39,27 @@ RECITERS_DATA = [
     }
 ]
 
+# ================== عناوين ووصف يوتيوب متغير (إبداعي) ==================
+YOUTUBE_TITLES = [
+    "تلاوة خاشعة تأسر القلوب من {surah} 🤍 بصوت {reciter} #shorts",
+    "عش مع القرآن دقائق - {surah} 🎧 القارئ {reciter} #shorts",
+    "تلاوة هادئة تريح الأعصاب | {surah} | {reciter} #shorts",
+    "حالات واتس قرآن كريم 🌸 {surah} - {reciter} #shorts",
+    "روائع التلاوات 🌙 {surah} بصوت الشيخ {reciter} #shorts"
+]
+
+YOUTUBE_DESCRIPTIONS = [
+    "استمع بقلبك إلى هذه التلاوة الخاشعة من {surah} بصوت الشيخ {reciter}. 🤍\n\nلا تنسَ الاشتراك في القناة والمشاركة لنشر الخير والدال على الخير كفاعله.\n\n#قرآن #تلاوة_خاشعة #shorts #quran #islam",
+    "تلاوة تريح القلب وتهدئ النفس من {surah} للقارئ {reciter}. ✨\nشارك المقطع واكسب الأجر.\n\n#quran #islam #قران_كريم #shorts",
+    "آيات بينات من {surah} بصوت عذب وجميل للشيخ {reciter}. اسمع بقلبك واطمئن. 🌸\n\n#تلاوات #قرآن #حالات_قران #shorts",
+    "لحظات من الطمأنينة مع تلاوة هادئة من {surah} بصوت الشيخ {reciter}. شاركها مع من تحب. 🤲\n\n#تلاوة #اسلاميات #قرآن #shorts"
+]
+
 # ================== أدوات مساعدة ==================
 
 LOG_FILE = "daily_log.txt"
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
-FONT_PATH_AR = "Amiri-Regular.ttf"
+FONT_PATH_AR = "Thuluth.ttf" # تم التعديل بناءً على طلبك
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
 reshaper_new = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
@@ -102,18 +117,14 @@ def build_shorts_video():
     reciter = random.choice(RECITERS_DATA)
     print(f"🎙️ القارئ: {reciter['name']}")
 
-    # نختار سورة من الجزء الأخير (النبأ 78 -> الناس 114)
-    # (باستثناء الفاتحة لأن الفاتحة البسملة فيها آية رقم 1 فلا تحتاج قص)
     s_id = random.randint(78, 114) 
     
-    # 1. جلب البيانات (النصوص + روابط الآيات الفردية للقياس فقط)
     print(f"📥 جلب بيانات سورة {s_id}...")
     api_url = f"http://api.alquran.cloud/v1/surah/{s_id}/{reciter['api_id']}"
     res_ar = requests.get(api_url).json()['data']
     res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
     s_name = res_ar['name']
     
-    # 2. تحميل ملف السورة الكامل (MP3 Source)
     s_id_str = f"{s_id:03}"
     mp3_url = f"{reciter['base_url']}{s_id_str}.mp3"
     print(f"⬇️ تحميل الملف الكامل: {mp3_url}")
@@ -122,51 +133,40 @@ def build_shorts_video():
     with open(full_audio_filename, 'wb') as f:
         f.write(requests.get(mp3_url).content)
     
-    # تحميل الملف الكامل في MoviePy لقياس مدته
     full_audio_clip = mp.AudioFileClip(full_audio_filename)
     full_duration = full_audio_clip.duration
     print(f"⏱️ مدة الملف الكامل (مع المقدمة): {full_duration:.2f} ثانية")
 
-    # 3. حساب مدة المقدمة (الاستعاذة + البسملة) بطريقة حسابية دقيقة
-    # المنطق: مدة الملف الكامل - مجموع مدد الآيات = مدة المقدمة
     print("🧮 جاري حساب مدة المقدمة (الاستعاذة/البسملة) لقصها...")
     
     total_ayahs_duration = 0.0
-    ayah_durations = [] # لحفظ مدة كل آية لاستخدامها في التزامن
+    ayah_durations = [] 
 
     for i, ayah in enumerate(res_ar['ayahs']):
-        # نحمل الآية الفردية فقط لقياس مدتها ثم نحذفها
         t_url = ayah['audio']
         t_file = f"temp_measure_{i}.mp3"
         with open(t_file, 'wb') as f:
             f.write(requests.get(t_url).content)
         
-        # قياس دقيق
         temp_clip = mp.AudioFileClip(t_file)
         dur = temp_clip.duration
-        temp_clip.close() # إغلاق الملف
-        os.remove(t_file) # حذف الملف
+        temp_clip.close() 
+        os.remove(t_file) 
         
         ayah_durations.append(dur)
         total_ayahs_duration += dur
 
-    # حساب الـ Offset (بداية الكلام الفعلي)
-    # ملاحظة: نضيف هامش خطأ بسيط جدا (0.1) لضمان عدم قص أول حرف
     offset_start = max(0, full_audio_clip.duration - total_ayahs_duration)
     
     print(f"✂️ مدة المقدمة المحسوبة: {offset_start:.2f} ثانية (سيتم قصها)")
 
-    # 4. تحديد الآيات التي ستدخل في الفيديو (بحد أقصى 59 ثانية)
     print("🎬 تحديد الآيات للفيديو...")
     
     final_video_duration = 0.0
     ayahs_to_render = []
-    
-    # نبدأ التوقيت من 0 لأننا سنقص الملف الصوتي ليبدأ من الآية 1
     current_cursor = 0.0 
     
     for i, dur in enumerate(ayah_durations):
-        # التحقق من أننا لا نتجاوز 59 ثانية
         if final_video_duration + dur > 59.0:
             break
             
@@ -180,18 +180,12 @@ def build_shorts_video():
         current_cursor += dur
         final_video_duration += dur
 
-    # 5. معالجة الصوت: قص المقدمة + قص النهاية عند آخر آية مختارة
-    # البداية: offset_start
-    # النهاية: offset_start + final_video_duration
-    
     final_audio = full_audio_clip.subclip(offset_start, offset_start + final_video_duration)
     
     print(f"🔉 الصوت النهائي جاهز: من {offset_start:.2f} إلى {offset_start + final_video_duration:.2f}")
 
-    # 6. إنشاء الفيديو
     print("⚙️ [5/6] تركيب الفيديو...")
     
-    # خلفية
     headers = {'Authorization': PEXELS_API_KEY}
     try:
         v_res = requests.get('https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=15', headers=headers).json()
@@ -205,9 +199,8 @@ def build_shorts_video():
 
     font_ar = ImageFont.truetype(FONT_PATH_AR, 90)
     font_en = ImageFont.truetype(FONT_PATH_EN, 40)
-    font_title = ImageFont.truetype(FONT_PATH_AR, 120)
-
-    # إنشاء مقاطع النصوص
+    
+    # 1. إنشاء مقاطع النصوص (الآيات)
     text_clips = []
     for item in ayahs_to_render:
         img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
@@ -216,7 +209,6 @@ def build_shorts_video():
         ar_lines = safe_wrap(item['text_ar'], width=38)
         en_lines = safe_wrap(item['text_en'], width=40)
 
-        # توسيط النصوص
         total_h = len(ar_lines)*130 + 50 + len(en_lines)*60
         y = (HEIGHT - total_h) / 2
 
@@ -232,13 +224,50 @@ def build_shorts_video():
         clip = mp.ImageClip(np.array(img)).set_start(item['start']).set_end(item['end'])
         text_clips.append(clip)
 
-    # عنوان السورة
+    # 2. إعداد عنوان السورة واسم القارئ (بنفس استايل الصور)
     t_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
-    draw_text_with_shadow(ImageDraw.Draw(t_img), (WIDTH/2, 200), process_ar(s_name), font_title, "#FFD700")
+    d_title = ImageDraw.Draw(t_img)
+    font_surah_title = ImageFont.truetype(FONT_PATH_AR, 160)
+    font_reciter_title = ImageFont.truetype(FONT_PATH_AR, 80)
+    
+    surah_text = process_ar(s_name)
+    reciter_text = process_ar(reciter['name'])
+    
+    # رسم اسم السورة وتحته اسم القارئ في الجزء العلوي
+    draw_text_with_shadow(d_title, (WIDTH/2, 280), surah_text, font_surah_title, "white")
+    draw_text_with_shadow(d_title, (WIDTH/2, 430), reciter_text, font_reciter_title, "white")
+    
     title_clip = mp.ImageClip(np.array(t_img)).set_duration(final_video_duration)
 
-    # التصدير
-    final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips).set_audio(final_audio)
+    # 3. إعداد الشريط الصوتي المتحرك (Audio Waveform Visualizer)
+    def make_waveform_frame(t):
+        img_wave = Image.new('RGBA', (WIDTH, 150), (0, 0, 0, 0))
+        draw_wave = ImageDraw.Draw(img_wave)
+        center_x = WIDTH // 2
+        center_y = 75
+        num_bars = 45 # عدد الأعمدة أو النقاط
+        bar_width = 4
+        spacing = 12
+        
+        for i in range(num_bars):
+            offset = i - (num_bars // 2)
+            # عمل تأثير القوس (الهرمي) بحيث الموجات في النص أعلى من الأطراف
+            envelope = math.exp(-0.015 * (offset ** 2))
+            # حركة الموجة بناء على الوقت (t) لتكون سلسة وجميلة
+            val = math.sin(t * 12 + i * 1.5) * math.sin(t * 6 - i)
+            h = int(60 * envelope * abs(val)) + 6 # أقل ارتفاع للعمود
+            
+            x = center_x + offset * spacing
+            draw_wave.rounded_rectangle([(x, center_y - h/2), (x + bar_width, center_y + h/2)], radius=2, fill="white")
+            
+        return np.array(img_wave)
+
+    wave_clip = mp.VideoClip(make_waveform_frame, duration=final_video_duration)
+    # نضع الشريط الصوتي في الأسفل
+    wave_clip = wave_clip.set_position(('center', HEIGHT - 450))
+
+    # التصدير بدمج كل الطبقات
+    final = mp.CompositeVideoClip([bg, dark, title_clip, wave_clip] + text_clips).set_audio(final_audio)
 
     print("⏳ [6/6] جاري الرندر (Full HD)...")
     final.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None, threads=4)
@@ -247,13 +276,16 @@ def build_shorts_video():
     full_audio_clip.close()
     if os.path.exists("full_surah.mp3"): os.remove("full_surah.mp3")
 
-    # الرفع
+    # الرفع لليوتيوب بالعناوين الجديدة
     print("📡 جاري الرفع...")
     youtube = youtube_authenticate()
-    desc = f"تلاوة من سورة {s_name} بصوت {reciter['name']}\n\n#quran #قرآن #shorts #islam"
+    
+    # اختيار عنوان ووصف بشكل عشوائي
+    final_title = random.choice(YOUTUBE_TITLES).format(surah=s_name, reciter=reciter['name'])
+    final_desc = random.choice(YOUTUBE_DESCRIPTIONS).format(surah=s_name, reciter=reciter['name'])
     
     body = {
-        'snippet': {'title': f'تلاوة خاشعة - {s_name} ❤️ #shorts', 'description': desc, 'categoryId': '22'},
+        'snippet': {'title': final_title, 'description': final_desc, 'categoryId': '22'},
         'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': False}
     }
     
