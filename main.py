@@ -1,86 +1,69 @@
-import os
-import requests
-import random
-import json
-import base64
-import sys
-import re
+import os, requests, random, json, base64, sys
 from datetime import datetime
 import numpy as np
-
-# مكتبات المعالجة
 import moviepy.editor as mp
 from moviepy.video.fx.all import loop
 import arabic_reshaper
 from bidi.algorithm import get_display
 from PIL import Image, ImageFont, ImageDraw
-
-# مكتبات جوجل
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# ================== إعدادات الأبعاد 1080x1920 ==================
+# ================== إعدادات الأبعاد (Shorts 1080p) ==================
+
 WIDTH = 1080
 HEIGHT = 1920
 
-# ================== إعدادات الخطوط (تحميل تلقائي) ==================
-FONT_TITLE_FILE = "Amiri-Bold.ttf"   # للعناوين (بديل الثلث لأنه يدعم القرآن)
-FONT_TEXT_FILE = "Amiri-Regular.ttf" # للآيات
-FONT_EN_FILE = "Roboto-Regular.ttf"
-
-def download_font_if_missing(filename, url):
-    if not os.path.exists(filename):
-        print(f"⬇️ جاري تحميل الخط {filename} لتجنب المربعات...")
-        try:
-            r = requests.get(url)
-            with open(filename, 'wb') as f:
-                f.write(r.content)
-            print("✅ تم تحميل الخط.")
-        except:
-            print(f"⚠️ فشل تحميل {filename}، تأكد من الاتصال بالإنترنت.")
-
-# روابط مباشرة للخطوط من GitHub (Google Fonts Repo)
-download_font_if_missing(FONT_TITLE_FILE, "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Bold.ttf")
-download_font_if_missing(FONT_TEXT_FILE, "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf")
-download_font_if_missing(FONT_EN_FILE, "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Regular.ttf")
-
-# ================== القراء (سيرفرات HQ) ==================
+# ================== إعدادات القراء ==================
+# نربط الـ API بمصدر الصوت لضمان تطابق النسخ
 RECITERS_DATA = [
-    {"api_id": "ar.minshawi", "name": "محمد صديق المنشاوي", "base_url": "https://server10.mp3quran.net/minsh/"},
-    {"api_id": "ar.alafasy", "name": "مشاري راشد العفاسي", "base_url": "https://server8.mp3quran.net/afs/"},
-    {"api_id": "ar.mahermuaiqly", "name": "ماهر المعيقلي", "base_url": "https://server12.mp3quran.net/maher/"},
-    {"api_id": "ar.abdullahbasfar", "name": "عبدالله بصفر", "base_url": "https://server6.mp3quran.net/bsfr/"}
+    {
+        "api_id": "ar.alafasy", 
+        "name": "مشاري العفاسي", 
+        "base_url": "https://server8.mp3quran.net/afs/" 
+    },
+    {
+        "api_id": "ar.mahermuaiqly", 
+        "name": "ماهر المعيقلي", 
+        "base_url": "https://server12.mp3quran.net/maher/" 
+    },
+    {
+        "api_id": "ar.abdurrahmaansudais", 
+        "name": "عبدالرحمن السديس", 
+        "base_url": "https://server11.mp3quran.net/sds/" 
+    },
+    {
+        "api_id": "ar.saoodshuraym", 
+        "name": "سعود الشريم", 
+        "base_url": "https://server7.mp3quran.net/shur/" 
+    }
 ]
 
-# ================== دوال تنظيف النص (إزالة المربعات) ==================
+# ================== أدوات مساعدة ==================
 
-def clean_quran_text(text):
-    """
-    هذه الدالة تزيل علامات الوقف والرموز القرآنية المعقدة التي تسبب المربعات،
-    وتبقي على الحروف والتشكيل الأساسي فقط.
-    """
-    # 1. إزالة علامات الوقف (صلى، قلى، ج، إلخ) والرموز الخاصة
-    # النطاق Unicode من 06D6 إلى 06ED يحتوي على علامات الوقف والسجدة
-    text = re.sub(r'[\u06D6-\u06ED]', '', text)
-    
-    # 2. إزالة الأقواس المزخرفة لنهاية الآية
-    text = re.sub(r'[\uFD3E\uFD3F]', '', text)
-    
-    # 3. إزالة التطويل (الكشيدة) الزائد لتجميل الخط
-    text = re.sub(r'[\u0640]', '', text)
-    
-    return text
+LOG_FILE = "daily_log.txt"
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
+FONT_PATH_AR = "Amiri-Regular.ttf"
+FONT_PATH_EN = "Roboto-Regular.ttf"
 
-def process_ar(text):
-    # تنظيف النص أولاً
-    clean_text = clean_quran_text(text)
-    # إعادة التشكيل
-    reshaper = arabic_reshaper.ArabicReshaper(configuration={
-        'delete_harakat': False, # نبقي التشكيل (لكن بعد أن حذفنا الرموز المعقدة)
-        'support_ligatures': True
-    })
-    return get_display(reshaper.reshape(clean_text))[::-1]
+reshaper_new = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
+
+def today_str():
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+def is_uploaded_today():
+    if not os.path.exists(LOG_FILE): return False
+    with open(LOG_FILE, "r", encoding="utf-8") as f:
+        return f.read().strip() == today_str()
+
+def mark_uploaded_today():
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        f.write(today_str())
+
+def process_ar(t):
+    try: return get_display(reshaper_new.reshape(t))[::-1]
+    except: return t
 
 def safe_wrap(text, width):
     words = text.split()
@@ -98,288 +81,190 @@ def safe_wrap(text, width):
     if current_line: lines.append(" ".join(current_line))
     return lines
 
-def draw_text_custom(draw, pos, text, font, fill_color):
+def draw_text_with_shadow(draw, pos, text, font, fill_color):
     x, y = pos
-    # رسم ظل أسود (Stroke) حول النص لجعله واضحاً
-    draw.text((x, y), text, font=font, fill=fill_color, anchor="mm", stroke_width=3, stroke_fill="black")
+    offsets = [(3,3), (-3,3), (3,-3), (-3,-3), (0,4), (0,-4), (4,0), (-4,0)]
+    for ox, oy in offsets:
+        draw.text((x+ox, y+oy), text, font=font, fill="black", anchor="mm")
+    draw.text((x, y), text, font=font, fill=fill_color, anchor="mm")
 
-# ================== كلاس الـ Visualizer (شريط الصوت) ==================
-class AudioBarVisualizer:
-    def __init__(self, audio_clip, bar_count=30, height=120, width=800):
-        self.audio = audio_clip
-        self.bar_count = bar_count
-        self.max_height = height
-        self.viz_width = width
-        self.fps = 24
-        
-        # استخراج البيانات الصوتية
-        try:
-            self.sound_array = audio_clip.to_soundarray(fps=self.fps)
-            if self.sound_array.ndim > 1:
-                self.volume_array = np.abs(self.sound_array).mean(axis=1)
-            else:
-                self.volume_array = np.abs(self.sound_array)
-            
-            # تطبيع الصوت (Normalize)
-            max_vol = self.volume_array.max()
-            if max_vol > 0:
-                self.volume_array = self.volume_array / max_vol
-        except:
-            # في حالة فشل قراءة الصوت، نستخدم مصفوفة فارغة لتجنب الكراش
-            self.volume_array = np.zeros(int(audio_clip.duration * self.fps) + 1)
-
-    def make_frame(self, t):
-        img = Image.new('RGBA', (WIDTH, 250), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        
-        frame_idx = int(t * self.fps)
-        if frame_idx >= len(self.volume_array): frame_idx = len(self.volume_array) - 1
-        
-        current_vol = self.volume_array[frame_idx]
-        
-        # إعدادات الرسم
-        bar_w = (self.viz_width / self.bar_count) - 5 # مسافة بين الأعمدة
-        start_x = (WIDTH - self.viz_width) / 2
-        center_y = 125
-        
-        for i in range(self.bar_count):
-            # جعل الحركة انسيابية من المنتصف
-            dist = abs(i - (self.bar_count / 2))
-            shape = max(0.2, 1 - (dist / (self.bar_count / 1.8)))
-            
-            # حساب الطول
-            h = self.max_height * current_vol * shape * random.uniform(0.9, 1.1)
-            h = max(4, h) 
-
-            x = start_x + (i * (bar_w + 5))
-            
-            # رسم العمود بحواف دائرية (Line Cap)
-            draw.line([(x, center_y - h/2), (x, center_y + h/2)], fill="white", width=int(bar_w))
-            
-        return np.array(img)
-
-# ================== المصادقة ==================
 def youtube_authenticate():
     TOKEN_B64 = os.environ.get("TOKEN_BASE64")
-    if not TOKEN_B64: return None
     token_data = json.loads(base64.b64decode(TOKEN_B64).decode('utf-8'))
     creds = Credentials.from_authorized_user_info(token_data)
     return build('youtube', 'v3', credentials=creds)
 
-# ================== الوظيفة الرئيسية ==================
-def build_pro_video():
-    print("🚀 [1/6] التجهيز واختيار السورة...")
+# ================== المحرك الرئيسي ==================
+
+def build_shorts_video():
+    print("🚀 [1/6] بدء التجهيز...")
     
     reciter = random.choice(RECITERS_DATA)
-    # السور من الملك (67) إلى الناس (114) مناسبة للشورتس
-    s_id = random.randint(67, 114) 
+    print(f"🎙️ القارئ: {reciter['name']}")
+
+    # نختار سورة من الجزء الأخير (النبأ 78 -> الناس 114)
+    # (باستثناء الفاتحة لأن الفاتحة البسملة فيها آية رقم 1 فلا تحتاج قص)
+    s_id = random.randint(78, 114) 
     
-    # جلب البيانات
-    print(f"📥 جلب بيانات سورة رقم {s_id} للقارئ {reciter['name']}...")
+    # 1. جلب البيانات (النصوص + روابط الآيات الفردية للقياس فقط)
+    print(f"📥 جلب بيانات سورة {s_id}...")
     api_url = f"http://api.alquran.cloud/v1/surah/{s_id}/{reciter['api_id']}"
     res_ar = requests.get(api_url).json()['data']
     res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
     s_name = res_ar['name']
     
-    # تحميل الصوت الكامل
+    # 2. تحميل ملف السورة الكامل (MP3 Source)
     s_id_str = f"{s_id:03}"
     mp3_url = f"{reciter['base_url']}{s_id_str}.mp3"
-    print(f"⬇️ تحميل ملف الصوت الأصلي: {mp3_url}")
+    print(f"⬇️ تحميل الملف الكامل: {mp3_url}")
     
-    with open("full_surah.mp3", 'wb') as f:
+    full_audio_filename = "full_surah.mp3"
+    with open(full_audio_filename, 'wb') as f:
         f.write(requests.get(mp3_url).content)
     
-    full_audio = mp.AudioFileClip("full_surah.mp3")
+    # تحميل الملف الكامل في MoviePy لقياس مدته
+    full_audio_clip = mp.AudioFileClip(full_audio_filename)
+    full_duration = full_audio_clip.duration
+    print(f"⏱️ مدة الملف الكامل (مع المقدمة): {full_duration:.2f} ثانية")
 
-    # === حساب التزامن وقص المقدمة ===
-    print("🧮 حساب وقت المقدمة لقصها...")
+    # 3. حساب مدة المقدمة (الاستعاذة + البسملة) بطريقة حسابية دقيقة
+    # المنطق: مدة الملف الكامل - مجموع مدد الآيات = مدة المقدمة
+    print("🧮 جاري حساب مدة المقدمة (الاستعاذة/البسملة) لقصها...")
     
-    # نحمل أول 10 آيات فقط لقياس متوسط التأخير (المقدمة)
-    temp_total_dur = 0
-    check_count = min(10, len(res_ar['ayahs']))
-    
-    for i in range(check_count):
-        r = requests.get(res_ar['ayahs'][i]['audio'])
-        with open("t_check.mp3", "wb") as f: f.write(r.content)
-        clip = mp.AudioFileClip("t_check.mp3")
-        temp_total_dur += clip.duration
-        clip.close()
-        os.remove("t_check.mp3")
-        
-    # في ملفات mp3quran، الملف الكامل = المقدمة + الآيات
-    # لكن ليس لدينا مدة كل الآيات. سنعتمد على استراتيجية آمنة:
-    # نبدأ الفيديو من الدقيقة 0.0 إذا كانت السورة قصيرة جداً (مثل الإخلاص)،
-    # أو نستخدم مكتبة pydub لاكتشاف الصمت، ولكن هنا سنفترض قص 5 ثواني (متوسط الاستعاذة)
-    # إلا إذا كانت الفاتحة (سورة 1) لا نقص شيئاً.
-    
-    start_offset = 0.0
-    if s_id != 1:
-         # تقدير ذكي: الفرق بين (مدة الملف الكامل) و (مجموع مدد الآيات من API)
-         # لكن هذا يتطلب تحميل كل الآيات.
-         # الحل البديل: قص ثابت آمن (معظم الملفات تبدأ بعد 4-6 ثواني)
-         # أو استخدام دالة اكتشاف الصوت. سنستخدم 0 حالياً ونعتمد على التزامن البصري،
-         # أو الأفضل: "حساب دقيق" كما فعلنا في الكود السابق.
-         
-         # سنعيد منطق الحساب الدقيق لأول مجموعة آيات تكفي الفيديو
-         pass
+    total_ayahs_duration = 0.0
+    ayah_durations = [] # لحفظ مدة كل آية لاستخدامها في التزامن
 
-    # === تجهيز الآيات للفيديو (Max 58s) ===
-    print("✂️ قص الآيات المطلوبة...")
-    current_timestamp = 0
-    selected_clips = []
-    
-    # سنحمل ملفات الآيات المختارة فقط *لقياس مدتها* لضبط تزامن النص
-    # لكن الصوت سيأتي من الملف الكامل
-    
-    # *تعديل هام*: لتجنب مشكلة التزامن تماماً مع الملف الكامل،
-    # سنستخدم الآيات المنفصلة (Individual Ayahs) ونقوم بدمجها باستخدام Crossfade
-    # هذا يحل مشكلة "التقطيع المستفز" ويجعل الانتقال ناعماً جداً،
-    # ويضمن 100% أن النص يطابق الصوت بدون تأخير المقدمة.
-    
-    audio_segments = []
-    accumulated_time = 0
-    
     for i, ayah in enumerate(res_ar['ayahs']):
-        # تحميل الآية
-        r = requests.get(ayah['audio'])
-        fname = f"ay_{i}.mp3"
-        with open(fname, "wb") as f: f.write(r.content)
+        # نحمل الآية الفردية فقط لقياس مدتها ثم نحذفها
+        t_url = ayah['audio']
+        t_file = f"temp_measure_{i}.mp3"
+        with open(t_file, 'wb') as f:
+            f.write(requests.get(t_url).content)
         
-        clip = mp.AudioFileClip(fname)
-        dur = clip.duration
+        # قياس دقيق
+        temp_clip = mp.AudioFileClip(t_file)
+        dur = temp_clip.duration
+        temp_clip.close() # إغلاق الملف
+        os.remove(t_file) # حذف الملف
         
-        if accumulated_time + dur > 58: # نتوقف قبل الدقيقة
-            clip.close()
-            os.remove(fname)
+        ayah_durations.append(dur)
+        total_ayahs_duration += dur
+
+    # حساب الـ Offset (بداية الكلام الفعلي)
+    # ملاحظة: نضيف هامش خطأ بسيط جدا (0.1) لضمان عدم قص أول حرف
+    offset_start = max(0, full_audio_clip.duration - total_ayahs_duration)
+    
+    print(f"✂️ مدة المقدمة المحسوبة: {offset_start:.2f} ثانية (سيتم قصها)")
+
+    # 4. تحديد الآيات التي ستدخل في الفيديو (بحد أقصى 59 ثانية)
+    print("🎬 تحديد الآيات للفيديو...")
+    
+    final_video_duration = 0.0
+    ayahs_to_render = []
+    
+    # نبدأ التوقيت من 0 لأننا سنقص الملف الصوتي ليبدأ من الآية 1
+    current_cursor = 0.0 
+    
+    for i, dur in enumerate(ayah_durations):
+        # التحقق من أننا لا نتجاوز 59 ثانية
+        if final_video_duration + dur > 59.0:
             break
             
-        audio_segments.append(clip)
-        
-        selected_clips.append({
-            "ar": ayah['text'],
-            "en": res_en['ayahs'][i]['text'],
-            "start": accumulated_time,
-            "end": accumulated_time + dur
+        ayahs_to_render.append({
+            "text_ar": res_ar['ayahs'][i]['text'],
+            "text_en": res_en['ayahs'][i]['text'],
+            "start": current_cursor,
+            "end": current_cursor + dur
         })
         
-        accumulated_time += dur
-        # لا نحذف الملف الآن، سنستخدمه في الدمج
-        
-    # دمج الأصوات بنعومة (Crossfade) لإخفاء التقطيع
-    # ندمجهم بملف واحد
-    print("🔊 دمج الصوت (Seamless Processing)...")
-    final_audio = mp.concatenate_audioclips(audio_segments) 
-    # ملاحظة: moviepy العادي يقوم بدمج جيد، إذا كان هناك صمت في ملف المصدر سيظهر.
-    # ملفات mp3quran عادة نظيفة.
+        current_cursor += dur
+        final_video_duration += dur
 
-    # تنظيف الملفات المؤقتة
-    for i in range(len(audio_segments)):
-        if os.path.exists(f"ay_{i}.mp3"): os.remove(f"ay_{i}.mp3")
-
-    # ================== الجرافيك ==================
-    print("⚙️ [3/6] تركيب الفيديو...")
-
-    # خلفية فيديو
-    headers = {'Authorization': os.environ.get("PEXELS_API_KEY")}
-    try:
-        v_res = requests.get('https://api.pexels.com/videos/search?query=clouds+sky+nature&orientation=portrait&per_page=5', headers=headers).json()
-        v_url = v_res['videos'][0]['video_files'][0]['link']
-        with open("bg.mp4", "wb") as f: f.write(requests.get(v_url).content)
-        bg = loop(mp.VideoFileClip("bg.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT), duration=final_audio.duration)
-    except:
-        bg = mp.ColorClip((WIDTH, HEIGHT), color=(20, 30, 40), duration=final_audio.duration)
-
-    # طبقة تعتيم
-    dark = mp.ColorClip((WIDTH, HEIGHT), color=(0,0,0), duration=final_audio.duration).set_opacity(0.6)
-
-    # 1. العنوان (خط أميري عريض - بديل الثلث)
-    header_img = Image.new('RGBA', (WIDTH, HEIGHT), (0,0,0,0))
-    d_head = ImageDraw.Draw(header_img)
+    # 5. معالجة الصوت: قص المقدمة + قص النهاية عند آخر آية مختارة
+    # البداية: offset_start
+    # النهاية: offset_start + final_video_duration
     
-    font_title = ImageFont.truetype(FONT_TITLE_FILE, 130) # حجم كبير
-    font_reciter = ImageFont.truetype(FONT_TITLE_FILE, 60)
+    final_audio = full_audio_clip.subclip(offset_start, offset_start + final_video_duration)
+    
+    print(f"🔉 الصوت النهائي جاهز: من {offset_start:.2f} إلى {offset_start + final_video_duration:.2f}")
 
-    # رسم العنوان في الأعلى
-    draw_text_custom(d_head, (WIDTH/2, 280), process_ar(s_name), font_title, "white")
-    draw_text_custom(d_head, (WIDTH/2, 400), process_ar(reciter['name']), font_reciter, "#DDDDDD")
+    # 6. إنشاء الفيديو
+    print("⚙️ [5/6] تركيب الفيديو...")
+    
+    # خلفية
+    headers = {'Authorization': PEXELS_API_KEY}
+    try:
+        v_res = requests.get('https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=15', headers=headers).json()
+        v_url = random.choice(v_res['videos'])['video_files'][0]['link']
+        with open("bg_v.mp4", "wb") as f: f.write(requests.get(v_url).content)
+        bg = loop(mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT), duration=final_video_duration)
+    except:
+        bg = mp.ColorClip(size=(WIDTH, HEIGHT), color=(10,10,10), duration=final_video_duration)
 
-    header_clip = mp.ImageClip(np.array(header_img)).set_duration(final_audio.duration)
+    dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=final_video_duration).set_opacity(0.4)
 
-    # 2. النصوص (الآيات)
+    font_ar = ImageFont.truetype(FONT_PATH_AR, 90)
+    font_en = ImageFont.truetype(FONT_PATH_EN, 40)
+    font_title = ImageFont.truetype(FONT_PATH_AR, 120)
+
+    # إنشاء مقاطع النصوص
     text_clips = []
-    font_ayah = ImageFont.truetype(FONT_TEXT_FILE, 85) # خط النسخ الواضح
-    font_en = ImageFont.truetype(FONT_EN_FILE, 40)
-
-    for item in selected_clips:
-        img = Image.new('RGBA', (WIDTH, HEIGHT), (0,0,0,0))
+    for item in ayahs_to_render:
+        img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
-        
-        # معالجة النصوص (إزالة المربعات)
-        ar_lines = safe_wrap(item['ar'], 40)
-        en_lines = safe_wrap(item['en'], 45)
-        
-        # حساب الموقع في المنتصف
-        h_block = len(ar_lines)*120 + 50 + len(en_lines)*60
-        start_y = (HEIGHT - h_block) / 2 
-        
-        y = start_y
+
+        ar_lines = safe_wrap(item['text_ar'], width=38)
+        en_lines = safe_wrap(item['text_en'], width=40)
+
+        # توسيط النصوص
+        total_h = len(ar_lines)*130 + 50 + len(en_lines)*60
+        y = (HEIGHT - total_h) / 2
+
         for line in ar_lines:
-            draw_text_custom(d, (WIDTH/2, y), process_ar(line), font_ayah, "white")
-            y += 120
+            draw_text_with_shadow(d, (WIDTH/2, y), process_ar(line), font_ar, "white")
+            y += 130
         
-        y += 30
+        y += 40
         for line in en_lines:
-            d.text((WIDTH/2, y), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=2, stroke_fill="black")
+            d.text((WIDTH/2, y), line, font=font_en, fill="#DDDDDD", anchor="mm", stroke_width=2, stroke_fill="black")
             y += 60
-            
+
         clip = mp.ImageClip(np.array(img)).set_start(item['start']).set_end(item['end'])
         text_clips.append(clip)
 
-    # 3. الويف فورم (الشريط المتحرك)
-    print("📊 إنشاء المؤثرات الصوتية...")
-    viz = AudioBarVisualizer(final_audio, bar_count=40, height=160, width=900)
-    # نستخدم try/except لتجنب الأخطاء إذا كان الصوت قصيراً جداً
-    try:
-        viz_clip = mp.VideoClip(make_frame=viz.make_frame, duration=final_audio.duration)
-        viz_clip = viz_clip.set_position(("center", 1450)) # أسفل الشاشة
-        final_layers = [bg, dark, header_clip, viz_clip] + text_clips
-    except:
-        final_layers = [bg, dark, header_clip] + text_clips
+    # عنوان السورة
+    t_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw_text_with_shadow(ImageDraw.Draw(t_img), (WIDTH/2, 200), process_ar(s_name), font_title, "#FFD700")
+    title_clip = mp.ImageClip(np.array(t_img)).set_duration(final_video_duration)
 
-    final = mp.CompositeVideoClip(final_layers).set_audio(final_audio)
+    # التصدير
+    final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips).set_audio(final_audio)
 
-    # الرندر
-    print("⏳ [5/6] تصدير الفيديو (Full HD)...")
-    final.write_videofile("final_fixed.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="medium", threads=4, logger=None)
+    print("⏳ [6/6] جاري الرندر (Full HD)...")
+    final.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None, threads=4)
+    
+    # تنظيف
+    full_audio_clip.close()
+    if os.path.exists("full_surah.mp3"): os.remove("full_surah.mp3")
 
     # الرفع
-    print("📡 [6/6] الرفع لليوتيوب...")
+    print("📡 جاري الرفع...")
     youtube = youtube_authenticate()
-    if youtube:
-        title_str = f"سورة {s_name} | {reciter['name']} 🤍 #shorts"
-        desc = f"""تلاوة هادئة من سورة {s_name}
-        القارئ: {reciter['name']}
-        
-        #قرآن #quran #shorts #islam #recitation"""
-        
-        body = {
-            'snippet': {'title': title_str, 'description': desc, 'categoryId': '22'},
-            'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': False}
-        }
-        
-        youtube.videos().insert(
-            part="snippet,status",
-            body=body,
-            media_body=MediaFileUpload("final_fixed.mp4", chunksize=-1, resumable=True)
-        ).execute()
-        print("✅ تم الرفع بنجاح!")
-    else:
-        print("⚠️ لم يتم الرفع (الرمز غير موجود)، الفيديو محفوظ باسم final_fixed.mp4")
+    desc = f"تلاوة من سورة {s_name} بصوت {reciter['name']}\n\n#quran #قرآن #shorts #islam"
+    
+    body = {
+        'snippet': {'title': f'تلاوة خاشعة - {s_name} ❤️ #shorts', 'description': desc, 'categoryId': '22'},
+        'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': False}
+    }
+    
+    youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final_shorts.mp4", chunksize=-1, resumable=True)).execute()
+    print("✅ تم!")
 
 if __name__ == "__main__":
-    # يمكن إضافة شروط الرفع اليومي هنا
-    try:
-        build_pro_video()
-    except Exception as e:
-        print(f"🔥 Error: {e}")
-        sys.exit(1)
+    if not is_uploaded_today() or os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
+        try:
+            build_shorts_video()
+            mark_uploaded_today()
+        except Exception as e:
+            print("🔥 خطأ:", e)
+            sys.exit(1)
