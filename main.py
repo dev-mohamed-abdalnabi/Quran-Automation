@@ -16,7 +16,6 @@ HEIGHT = 1920
 FONT_PATH_AR = "Thuluth.ttf"
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
-# ================== القراء والعناوين المتغيرة ==================
 RECITERS_DATA = [
     {"api_id": "ar.alafasy", "name": "مشاري العفاسي", "base_url": "https://server8.mp3quran.net/afs/"},
     {"api_id": "ar.mahermuaiqly", "name": "ماهر المعيقلي", "base_url": "https://server12.mp3quran.net/maher/"},
@@ -40,10 +39,8 @@ def process_ar(t):
 
 def draw_text_with_shadow(draw, pos, text, font, fill_color, opacity=255):
     x, y = pos
-    # رسم الظل
     for ox, oy in [(3,3), (-3,3), (3,-3), (-3,-3)]:
         draw.text((x+ox, y+oy), text, font=font, fill=(0,0,0, opacity), anchor="mm")
-    # رسم النص الأساسي
     draw.text((x, y), text, font=font, fill=(*fill_color, opacity), anchor="mm")
 
 # ================== المحرك الرئيسي ==================
@@ -60,42 +57,39 @@ def build_shorts_video():
     with open("temp_audio.mp3", 'wb') as f: f.write(requests.get(mp3_url).content)
     full_audio = mp.AudioFileClip("temp_audio.mp3")
     
+    # --- حساب التوقيت بدقة لمنع خطأ الـ duration ---
     ayahs_data = []
     current_time = 0.0
     for i in range(len(res_ar['ayahs'])):
-        dur = 6.5 # توقيت افتراضي للسكرول
-        if current_time + dur > 58: break
+        dur = 6.0 
+        if current_time + dur > 58 or current_time + dur > full_audio.duration: 
+            break
         ayahs_data.append({"ar": res_ar['ayahs'][i]['text'], "en": res_en['ayahs'][i]['text'], "start": current_time, "end": current_time + dur})
         current_time += dur
 
-    final_audio = full_audio.subclip(0, current_time)
+    # أهم خطوة: الفيديو مدته أقصر من الصوت بـ 0.2 ثانية للأمان
+    final_video_duration = current_time
+    final_audio = full_audio.subclip(0, final_video_duration + 0.2) 
 
-    # 1. الخلفية (سوداء سادة عشان نتجنب أي تعارض قنوات)
-    bg = mp.ColorClip(size=(WIDTH, HEIGHT), color=(15, 15, 15), duration=current_time)
+    bg = mp.ColorClip(size=(WIDTH, HEIGHT), color=(15, 15, 15), duration=final_video_duration)
     
-    # 2. نظام الـ Scroll (معدل ليعيد RGB فقط)
     def make_scroll_frame(t):
-        # بننشئ صورة بخلفية سوداء (RGB) مش شفافة عشان نتفادى الخطأ
         img = Image.new('RGB', (WIDTH, HEIGHT), (15, 15, 15))
         d = ImageDraw.Draw(img)
         f_ar = ImageFont.truetype(FONT_PATH_AR, 95)
         f_en = ImageFont.truetype(FONT_PATH_EN, 45)
-        
         center_y = HEIGHT // 2 + 100
         for i, ayah in enumerate(ayahs_data):
-            dist = abs(t - (ayah['start'] + 3.25))
+            dist = abs(t - (ayah['start'] + 3.0))
             alpha = int(max(60, 255 - (dist * 45)))
             y_offset = center_y - (t * 180) + (i * 350)
-            
             if -300 < y_offset < HEIGHT + 300:
                 draw_text_with_shadow(d, (WIDTH/2, y_offset), process_ar(ayah['ar']), f_ar, (255,255,255), alpha)
                 d.text((WIDTH/2, y_offset + 110), ayah['en'], font=f_en, fill=(200, 200, 200), anchor="mm")
-        
         return np.array(img)
 
-    scroll_clip = mp.VideoClip(make_scroll_frame, duration=current_time)
+    scroll_clip = mp.VideoClip(make_scroll_frame, duration=final_video_duration)
 
-    # 3. العنوان الثابت (معدل ليكون RGB)
     def make_title_frame(t):
         img = Image.new('RGB', (WIDTH, HEIGHT), (0, 0, 0))
         d = ImageDraw.Draw(img)
@@ -103,12 +97,9 @@ def build_shorts_video():
         draw_text_with_shadow(d, (WIDTH/2, 440), process_ar(reciter['name']), ImageFont.truetype(FONT_PATH_AR, 85), (255, 255, 255))
         return np.array(img)
 
-    title_clip = mp.VideoClip(make_title_frame, duration=current_time)
-    # جعل العنوان شفاف ودمجه
-    title_mask = mp.VideoClip(lambda t: make_title_frame(t)[:,:,0]/255.0, duration=current_time, ismask=True)
-    title_clip = title_clip.set_mask(title_mask)
+    title_mask = mp.VideoClip(lambda t: make_title_frame(t)[:,:,0]/255.0, duration=final_video_duration, ismask=True)
+    title_clip = mp.VideoClip(make_title_frame, duration=final_video_duration).set_mask(title_mask)
 
-    # 4. الشريط المتحرك (Waveform)
     def make_wave_frame(t):
         img = Image.new('RGB', (WIDTH, 160), (0,0,0))
         d = ImageDraw.Draw(img)
@@ -118,23 +109,19 @@ def build_shorts_video():
             d.rounded_rectangle([x, 80-h, x+6, 80+h], radius=3, fill=(255,255,255))
         return np.array(img)
 
-    wave_mask = mp.VideoClip(lambda t: make_wave_frame(t)[:,:,0]/255.0, duration=current_time, ismask=True)
-    wave_clip = mp.VideoClip(make_wave_frame, duration=current_time).set_mask(wave_mask).set_position(('center', HEIGHT-400))
+    wave_mask = mp.VideoClip(lambda t: make_wave_frame(t)[:,:,0]/255.0, duration=final_video_duration, ismask=True)
+    wave_clip = mp.VideoClip(make_wave_frame, duration=final_video_duration).set_mask(wave_mask).set_position(('center', HEIGHT-400))
 
-    # التجميع النهائي
-    final = mp.CompositeVideoClip([bg, scroll_clip, title_clip, wave_clip]).set_audio(final_audio)
+    final = mp.CompositeVideoClip([bg, scroll_clip, title_clip, wave_clip]).set_duration(final_video_duration).set_audio(final_audio)
     
     print("⏳ [6/6] جاري الرندر...")
-    final.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None)
+    final.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac", logger=None)
     
-    # الرفع
+    # --- الرفع ---
     youtube = youtube_authenticate()
-    body = {
-        'snippet': {'title': f'تلاوة خاشعة - {s_name} بصوت {reciter["name"]}', 'description': 'Quran Shorts', 'categoryId': '22'},
-        'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': False}
-    }
+    body = {'snippet': {'title': f'تلاوة - {s_name}', 'description': 'Quran', 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
     youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final_shorts.mp4", chunksize=-1, resumable=True)).execute()
-    print("✅ تم الرفع بنجاح!")
+    print("✅ تم الرفع!")
 
 def youtube_authenticate():
     TOKEN_B64 = os.environ.get("TOKEN_BASE64")
@@ -143,8 +130,7 @@ def youtube_authenticate():
     return build('youtube', 'v3', credentials=creds)
 
 if __name__ == "__main__":
-    try:
-        build_shorts_video()
+    try: build_shorts_video()
     except Exception as e:
         print("🔥 خطأ:", e)
         sys.exit(1)
