@@ -17,7 +17,6 @@ WIDTH = 1080
 HEIGHT = 1920
 
 # ================== إعدادات القراء ==================
-# كل قارئ له API خاص بيرجع الآيات بدون بسملة/استعاذة
 RECITERS_DATA = [
     {
         "api_id": "ar.alafasy",
@@ -43,13 +42,11 @@ RECITERS_DATA = [
 
 LOG_FILE = "daily_log.txt"
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
-FONT_PATH_AR = "Thuluth.ttf"       # خط الثلث للعنوان
-FONT_PATH_BODY = "Amiri-Regular.ttf"  # خط الجسم للآيات
+FONT_PATH_AR = "Thuluth.ttf"
+FONT_PATH_BODY = "Amiri-Regular.ttf"
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
-# ================== إعداد المشكّل العربي ==================
-# نقلل التشكيل: نبقي فقط الفتحة والكسرة والضمة والسكون والشدة
-HARAKAT_TO_KEEP = set('\u064E\u064F\u0650\u0652\u0651')  # فتحة ضمة كسرة سكون شدة
+HARAKAT_TO_KEEP = set('\u064E\u064F\u0650\u0652\u0651')
 ALL_HARAKAT = set('\u064B\u064C\u064D\u064E\u064F\u0650\u0651\u0652\u0653\u0654\u0655\u0670')
 
 reshaper_cfg = arabic_reshaper.ArabicReshaper(configuration={
@@ -70,19 +67,16 @@ def mark_uploaded_today():
         f.write(today_str())
 
 def reduce_harakat(text):
-    """يبقي فقط الفتحة والكسرة والضمة والسكون والشدة ويحذف الباقي"""
     result = []
     for ch in text:
         if ch in ALL_HARAKAT:
             if ch in HARAKAT_TO_KEEP:
                 result.append(ch)
-            # غير ذلك نحذفها
         else:
             result.append(ch)
     return "".join(result)
 
 def process_ar(t):
-    """معالجة النص العربي للعرض الصحيح"""
     try:
         t = reduce_harakat(t)
         reshaped = reshaper_cfg.reshape(t)
@@ -91,7 +85,6 @@ def process_ar(t):
         return t
 
 def safe_wrap(text, max_chars=36):
-    """تقسيم النص لأسطر بحد أقصى"""
     words = text.split()
     lines, current_line, current_len = [], [], 0
     for word in words:
@@ -106,7 +99,6 @@ def safe_wrap(text, max_chars=36):
     return lines
 
 def draw_text_with_shadow(draw, pos, text, font, fill_color, shadow_color=(0,0,0,200)):
-    """رسم النص مع ظل"""
     x, y = pos
     for ox, oy in [(3,3),(-3,3),(3,-3),(-3,-3),(0,4),(0,-4),(4,0),(-4,0)]:
         draw.text((x+ox, y+oy), text, font=font, fill=shadow_color, anchor="mm")
@@ -118,14 +110,9 @@ def youtube_authenticate():
     creds = Credentials.from_authorized_user_info(token_data)
     return build('youtube', 'v3', credentials=creds)
 
-# ================== تحليل الصوت لاستخراج Amplitudes ==================
+# ================== تحليل الصوت ==================
 
-def extract_waveform_data(audio_path, num_bars=60, fps=24, duration=None):
-    """
-    يحلل ملف MP3 ويستخرج amplitude لكل frame
-    يرجع: dict بـ timestamps -> amplitude values
-    """
-    # تحويل MP3 إلى WAV للتحليل
+def extract_waveform_data(audio_path, fps=24, duration=None):
     wav_path = audio_path.replace(".mp3", "_analysis.wav")
     subprocess.run([
         "ffmpeg", "-y", "-i", audio_path,
@@ -139,8 +126,6 @@ def extract_waveform_data(audio_path, num_bars=60, fps=24, duration=None):
     os.remove(wav_path)
     
     total_frames = int(duration * fps) if duration else len(data) // (sample_rate // fps)
-    
-    # لكل frame، نحسب RMS amplitude
     frame_amplitudes = []
     samples_per_frame = sample_rate // fps
     
@@ -154,115 +139,86 @@ def extract_waveform_data(audio_path, num_bars=60, fps=24, duration=None):
         rms = np.sqrt(np.mean(chunk**2))
         frame_amplitudes.append(float(rms))
     
-    # Normalize
     max_amp = max(frame_amplitudes) if max(frame_amplitudes) > 0 else 1
     frame_amplitudes = [a / max_amp for a in frame_amplitudes]
     
     return frame_amplitudes
 
-# ================== رسم شريط الصوت المتحرك ==================
+# ================== شريط الصوت المتحرك ==================
 
 def make_waveform_frame(t, frame_amplitudes, fps=24, width=WIDTH, height=HEIGHT):
-    """
-    يرسم frame لشريط الصوت المتحرك بناءً على amplitude الفعلي
-    النتيجة: numpy array RGBA
-    """
     frame_idx = min(int(t * fps), len(frame_amplitudes) - 1)
-    current_amp = frame_amplitudes[frame_idx]
     
+    # نرسم على خلفية شفافة ثم نحولها لـ RGB
     img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     
-    # إعدادات الشريط
     num_bars = 35
-    bar_area_w = 700  # عرض منطقة الشريط
+    bar_area_w = 700
     bar_spacing = bar_area_w // num_bars
     bar_w = max(8, bar_spacing - 6)
     start_x = (width - bar_area_w) // 2
-    center_y = height - 280  # موقع الشريط في الأسفل
+    center_y = height - 280
     max_bar_h = 120
     min_bar_h = 8
-    
-    # نأخذ window من الـ amplitudes حول الـ frame الحالي للتموج
-    window_size = num_bars
-    half_w = window_size // 2
+    half_w = num_bars // 2
     
     for i in range(num_bars):
-        # نأخذ amplitude من frames قريبة لإنشاء شكل موجي
         f_idx = frame_idx - half_w + i
         f_idx = max(0, min(f_idx, len(frame_amplitudes) - 1))
         amp = frame_amplitudes[f_idx]
         
-        # نضيف smoothing
         bar_h = int(min_bar_h + amp * (max_bar_h - min_bar_h))
         bar_h = max(min_bar_h, bar_h)
-        
         x = start_x + i * bar_spacing + bar_spacing // 2
         
-        # نقاط الدائرة الصغيرة على الجانبين (نقاط الـ dotted)
         if i == 0 or i == num_bars - 1:
-            dot_x = x
             for dot_y_offset in range(-3, 4, 1):
                 dot_cy = center_y + dot_y_offset * 18
-                draw.ellipse([dot_x-3, dot_cy-3, dot_x+3, dot_cy+3], fill=(200,200,200,180))
+                draw.ellipse([x-3, dot_cy-3, x+3, dot_cy+3], fill=(200,200,200,180))
             continue
         
-        # رسم الشريط مع تدرج لوني (أبيض في المنتصف، رمادي في الأطراف)
         y1 = center_y - bar_h
         y2 = center_y + bar_h
-        
-        # اللون بناءً على الموقع
         alpha = int(150 + 105 * amp)
         color = (255, 255, 255, alpha)
-        
-        # رسم المستطيل المدور
-        draw.rounded_rectangle([x - bar_w//2, y1, x + bar_w//2, y2], 
+        draw.rounded_rectangle([x - bar_w//2, y1, x + bar_w//2, y2],
                                 radius=bar_w//2, fill=color)
     
-    return np.array(img)
+    # ✅ تحويل RGBA إلى RGB
+    bg = Image.new('RGB', (width, height), (0, 0, 0))
+    bg.paste(img, mask=img.split()[3])
+    return np.array(bg)
 
-# ================== رسم العنوان بخط الثلث ==================
+# ================== العنوان ==================
 
 def make_title_image(surah_name, reciter_name, width=WIDTH, height=HEIGHT):
-    """
-    يرسم عنوان السورة بخط الثلث بنفس ستايل الصورة المرجعية
-    """
     img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     
     try:
-        font_title = ImageFont.truetype(FONT_PATH_AR, 150)  # خط الثلث للعنوان
+        font_title = ImageFont.truetype(FONT_PATH_AR, 150)
         font_reciter = ImageFont.truetype(FONT_PATH_BODY, 70)
     except:
         font_title = ImageFont.load_default()
         font_reciter = ImageFont.load_default()
     
-    title_y = 200  # موقع العنوان في الأعلى مثل الصورة
+    title_y = 200
+    draw_text_with_shadow(draw, (width//2, title_y), process_ar(surah_name),
+                          font_title, fill_color="#FFD700", shadow_color=(0,0,0,230))
+    draw_text_with_shadow(draw, (width//2, title_y + 180), process_ar(reciter_name),
+                          font_reciter, fill_color="white", shadow_color=(0,0,0,200))
     
-    # رسم اسم السورة بالذهبي مع ظل كثيف (نفس ستايل الصورة)
-    surah_display = process_ar(surah_name)
-    draw_text_with_shadow(draw, (width//2, title_y), surah_display, font_title, 
-                          fill_color="#FFD700",
-                          shadow_color=(0,0,0,230))
-    
-    # رسم اسم القارئ تحت العنوان بالأبيض (نفس الصورة)
-    reciter_display = process_ar(reciter_name)
-    draw_text_with_shadow(draw, (width//2, title_y + 180), reciter_display, font_reciter,
-                          fill_color="white",
-                          shadow_color=(0,0,0,200))
-    
-    return np.array(img)
+    # ✅ تحويل RGBA إلى RGB
+    bg = Image.new('RGB', (width, height), (0, 0, 0))
+    bg.paste(img, mask=img.split()[3])
+    return np.array(bg)
 
-# ================== جلب الآيات بدون بسملة/استعاذة ==================
+# ================== جلب الآيات ==================
 
 def fetch_ayahs_no_basmala(surah_id, reciter):
-    """
-    يجلب كل آية كملف منفصل مباشرة من mp3quran
-    بدون بسملة/استعاذة لأننا نجمع الآيات الفردية
-    """
     print(f"📥 جلب بيانات النص للسورة {surah_id}...")
     
-    # نص عربي + ترجمة
     res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{surah_id}/{reciter['api_id']}").json()['data']
     res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{surah_id}/en.sahih").json()['data']
     
@@ -272,8 +228,6 @@ def fetch_ayahs_no_basmala(surah_id, reciter):
     
     print(f"📖 السورة: {surah_name} - عدد الآيات: {len(ayahs_ar)}")
     
-    # تحميل كل آية منفصلة + قياس مدتها
-    # هذا يضمن 100% عدم وجود بسملة/استعاذة في الصوت
     ayahs_data = []
     current_time = 0.0
     audio_segments = []
@@ -315,10 +269,6 @@ def fetch_ayahs_no_basmala(surah_id, reciter):
     return surah_name, ayahs_data, audio_segments
 
 def build_final_audio(ayahs_data, max_duration=59.0):
-    """
-    يختار الآيات المناسبة ويدمجها في ملف صوتي واحد
-    بدون أي صوت إضافي (لا بسملة لا استعاذة)
-    """
     selected = []
     total_dur = 0.0
     
@@ -330,7 +280,6 @@ def build_final_audio(ayahs_data, max_duration=59.0):
     
     print(f"🎵 {len(selected)} آية، مدة: {total_dur:.2f}ث")
     
-    # دمج الآيات بـ ffmpeg concat
     concat_file = "concat_list.txt"
     with open(concat_file, 'w') as f:
         for ayah in selected:
@@ -343,7 +292,6 @@ def build_final_audio(ayahs_data, max_duration=59.0):
     ], capture_output=True)
     
     os.remove(concat_file)
-    
     return selected, total_dur, output_audio
 
 # ================== المحرك الرئيسي ==================
@@ -354,21 +302,16 @@ def build_shorts_video():
     reciter = random.choice(RECITERS_DATA)
     print(f"🎙️ القارئ: {reciter['name']}")
     
-    # سور من الجزء الأخير (78 الى 114)
     s_id = random.randint(78, 114)
     
-    # 1. جلب الآيات الفردية (بدون بسملة/استعاذة)
     surah_name, ayahs_data, audio_segments = fetch_ayahs_no_basmala(s_id, reciter)
     
-    # 2. بناء الصوت النهائي (آيات مختارة فقط بحد 59 ثانية)
     print("🔧 [2/7] بناء الصوت النهائي...")
     selected_ayahs, final_duration, audio_path = build_final_audio(ayahs_data)
     
-    # 3. تحليل الصوت لاستخراج amplitudes
     print("📊 [3/7] تحليل الصوت...")
     frame_amplitudes = extract_waveform_data(audio_path, fps=24, duration=final_duration)
     
-    # 4. تحميل خلفية من Pexels
     print("🌄 [4/7] تحميل الخلفية...")
     headers = {'Authorization': PEXELS_API_KEY}
     try:
@@ -387,36 +330,32 @@ def build_shorts_video():
         print(f"⚠️ خلفية افتراضية ({e})")
         bg = mp.ColorClip(size=(WIDTH, HEIGHT), color=(10, 15, 30), duration=final_duration)
     
-    # 5. تحميل الخطوط
     try:
-        font_title = ImageFont.truetype(FONT_PATH_AR, 150)   # خط الثلث للعنوان
-        font_body = ImageFont.truetype(FONT_PATH_BODY, 85)   # خط الجسم للآيات
+        font_body = ImageFont.truetype(FONT_PATH_BODY, 85)
         font_en = ImageFont.truetype(FONT_PATH_EN, 40)
     except Exception as e:
         print(f"⚠️ خطأ في الخطوط: {e}")
-        font_title = font_body = font_en = ImageFont.load_default()
+        font_body = font_en = ImageFont.load_default()
     
     print("⚙️ [5/7] إنشاء مقاطع الفيديو...")
     
-    # تعتيم الخلفية
     dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0, 0, 0), duration=final_duration).set_opacity(0.45)
     
-    # --- العنوان الثابت ---
+    # العنوان
     title_img = make_title_image(surah_name, reciter['name'])
     title_clip = mp.ImageClip(title_img).set_duration(final_duration)
     
-    # --- مقاطع الآيات ---
+    # مقاطع الآيات
     text_clips = []
     for item in selected_ayahs:
         img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
         
-        # الآيات العربية
         ar_lines = safe_wrap(item['text_ar'], max_chars=30)
         en_lines = safe_wrap(item['text_en'], max_chars=45)
         
         total_h = len(ar_lines) * 130 + 60 + len(en_lines) * 58
-        y = (HEIGHT - total_h) / 2 + 100  # تحريك للأسفل قليلاً (العنوان في الأعلى)
+        y = (HEIGHT - total_h) / 2 + 100
         
         for line in ar_lines:
             draw_text_with_shadow(d, (WIDTH//2, y), process_ar(line), font_body, "white")
@@ -424,36 +363,34 @@ def build_shorts_video():
         
         y += 50
         for line in en_lines:
-            d.text((WIDTH//2, y), line, font=font_en, fill="#CCCCCC", 
+            d.text((WIDTH//2, y), line, font=font_en, fill="#CCCCCC",
                    anchor="mm", stroke_width=2, stroke_fill="black")
             y += 58
         
-        # رقم الآية
         ayah_num = f"({item['number']})"
-        d.text((WIDTH//2, y + 30), process_ar(ayah_num), font=font_en, 
+        d.text((WIDTH//2, y + 30), process_ar(ayah_num), font=font_en,
                fill="#FFD700", anchor="mm")
         
-        clip = (mp.ImageClip(np.array(img))
+        # ✅ تحويل RGBA إلى RGB
+        bg_img = Image.new('RGB', (WIDTH, HEIGHT), (0, 0, 0))
+        bg_img.paste(img, mask=img.split()[3])
+        
+        clip = (mp.ImageClip(np.array(bg_img))
                 .set_start(item['start'])
                 .set_end(item['end'])
                 .crossfadein(0.3)
                 .crossfadeout(0.3))
         text_clips.append(clip)
     
-    # --- شريط الصوت المتحرك الحقيقي ---
     print("🎵 [6/7] إنشاء شريط الصوت المتحرك...")
-    
-    # نمرر الـ amplitudes للـ lambda
-    _amps = frame_amplitudes  # reference محلية
+    _amps = frame_amplitudes
     waveform_clip = mp.VideoClip(
         lambda t: make_waveform_frame(t, _amps, fps=24, width=WIDTH, height=HEIGHT),
         duration=final_duration
     ).set_fps(24)
     
-    # --- الصوت النهائي ---
     final_audio = mp.AudioFileClip(audio_path)
     
-    # --- التجميع ---
     final = mp.CompositeVideoClip([
         bg, dark, title_clip, waveform_clip
     ] + text_clips).set_audio(final_audio)
@@ -470,14 +407,12 @@ def build_shorts_video():
         threads=4
     )
     
-    # ================== تنظيف الملفات المؤقتة ==================
     print("🧹 تنظيف...")
     for f in audio_segments:
         if os.path.exists(f): os.remove(f)
     if os.path.exists(audio_path): os.remove(audio_path)
     if os.path.exists("bg_v.mp4"): os.remove("bg_v.mp4")
     
-    # ================== الرفع على يوتيوب ==================
     print("📡 رفع على يوتيوب...")
     youtube = youtube_authenticate()
     
