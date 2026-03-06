@@ -1,32 +1,32 @@
-import os, requests, random, json, base64, sys, re
+import os, requests, random, json, base64, sys
 from datetime import datetime
 import numpy as np
 import moviepy.editor as mp
-from moviepy.video.fx.all import loop 
+from moviepy.video.fx.all import loop
 import arabic_reshaper
 from bidi.algorithm import get_display
 from PIL import Image, ImageFont, ImageDraw
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from groq import Groq
-from hijri_converter import Gregorian
 
-# ================== إعدادات الأبعاد (Full HD 1080p) ==================
 WIDTH = 1080
 HEIGHT = 1920
 
-BOX_X = 75
-BOX_Y = 420
-BOX_W = 930
-BOX_H = 1125
-BOX_OPACITY = 160
-
-# ================== سجل يومي ==================
 LOG_FILE = "daily_log.txt"
+
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+
+AUDIO_EDITION = "ar.alafasy"
+
+FONT_PATH_AR = "Amiri-Regular.ttf"
+FONT_PATH_EN = "Roboto-Regular.ttf"
+
 
 def today_str():
     return datetime.utcnow().strftime("%Y-%m-%d")
+
 
 def is_uploaded_today():
     if not os.path.exists(LOG_FILE):
@@ -34,217 +34,225 @@ def is_uploaded_today():
     with open(LOG_FILE, "r", encoding="utf-8") as f:
         return f.read().strip() == today_str()
 
+
 def mark_uploaded_today():
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         f.write(today_str())
 
-# ================== الإعدادات والخطوط ==================
-PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
-# تم تغيير الصوت إلى الشيخ عبد الباسط عبد الصمد المرتل
-AUDIO_EDITION = 'ar.abdulbasitmurattal' 
-
-FONT_PATH_AR = "Amiri-Regular.ttf" 
-FONT_PATH_EN = "Roboto-Regular.ttf"
-
-reshaper_old = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': True, 'support_ligatures': True})
-reshaper_new = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
-
-def process_ar_old(t):
-    try: return get_display(reshaper_old.reshape(t))[::-1]
-    except: return t
-
-def process_ar_new(t):
-    try: return get_display(reshaper_new.reshape(t))[::-1]
-    except: return t
-
-def safe_wrap(text, width):
-    words = text.split()
-    lines = []
-    current_line = []
-    current_length = 0
-    for word in words:
-        if current_length + len(word) <= width:
-            current_line.append(word)
-            current_length += len(word) + 1
-        else:
-            if current_line: lines.append(" ".join(current_line))
-            current_line = [word]
-            current_length = len(word) + 1
-    if current_line: lines.append(" ".join(current_line))
-    return lines
-
-def draw_text_with_shadow(draw, pos, text, font, fill_color):
-    x, y = pos
-    shadow_color = "black"
-    offsets = [(3,3), (-3,3), (3,-3), (-3,-3), (0,3), (0,-3), (3,0), (-2,0)]
-    for ox, oy in offsets:
-        draw.text((x+ox, y+oy), text, font=font, fill=shadow_color, anchor="mm")
-    draw.text((x, y), text, font=font, fill=fill_color, anchor="mm")
 
 def youtube_authenticate():
     TOKEN_B64 = os.environ.get("TOKEN_BASE64")
-    token_data = json.loads(base64.b64decode(TOKEN_B64).decode('utf-8'))
+    token_data = json.loads(base64.b64decode(TOKEN_B64).decode("utf-8"))
     creds = Credentials.from_authorized_user_info(token_data)
-    return build('youtube', 'v3', credentials=creds)
+    return build("youtube", "v3", credentials=creds)
 
-# ================== الذكاء الاصطناعي لاختيار الآيات ==================
-def get_ai_quran_choice(youtube_client):
+
+# ================= AI =================
+
+def ai_analyze(channel_stats, news, hijri_date):
+
+    prompt = f"""
+انت خبير يوتيوب اسلامي.
+
+هذه احصائيات القناة:
+{channel_stats}
+
+اليوم:
+{hijri_date}
+
+اخر الاخبار:
+{news}
+
+اقترح:
+عنوان فيديو قصير
+وصف
+هاشتاجات
+"""
+
+    r = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "llama3-70b-8192",
+            "messages": [{"role": "user", "content": prompt}],
+        },
+    )
+
+    data = r.json()
+
     try:
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key:
-            print("⚠️ مفتاح GROQ_API_KEY غير موجود، سيتم الاختيار عشوائياً.")
-            return random.randint(1, 114), 1
+        return data["choices"][0]["message"]["content"]
+    except:
+        return "تلاوة خاشعة من القرآن الكريم #quran #shorts"
 
-        # جلب الإحصائيات
-        subs, views = 0, 0
-        try:
-            req = youtube_client.channels().list(mine=True, part="statistics")
-            res = req.execute()
-            stats = res['items'][0]['statistics']
-            views = int(stats.get('viewCount', 0))
-            subs = int(stats.get('subscriberCount', 0))
-        except Exception as e:
-            print(f"⚠️ تعذر جلب إحصائيات القناة: {e}")
 
-        # التواريخ
-        today = datetime.utcnow()
-        hijri = Gregorian(today.year, today.month, today.day).to_hijri()
+# ================= API =================
 
-        prompt = f"""
-        أنت مساعد ذكي إسلامي.
-        - تاريخ اليوم الميلادي: {today.strftime('%Y-%m-%d')}
-        - تاريخ اليوم الهجري: {hijri}
-        - إحصائيات القناة: {subs} مشترك، {views} مشاهدة.
-        
-        بناءً على التواريخ والمناسبات الحالية، اختر سورة وآية للبدء منها لتكون مؤثرة لمقطع يوتيوب شورتس.
-        يجب أن يكون الرد عبارة عن كود JSON فقط بدون أي نص إضافي، بهذا الشكل:
-        {{"surah": رقم السورة (1-114), "ayah": رقم الآية}}
-        """
+def get_hijri_date():
 
-        client = Groq(api_key=api_key)
-        completion = client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=150,
+    r = requests.get(
+        "https://api.aladhan.com/v1/gToH?date=" + datetime.utcnow().strftime("%d-%m-%Y")
+    ).json()
+
+    d = r["data"]["hijri"]
+
+    return f"{d['day']} {d['month']['ar']} {d['year']} هجري"
+
+
+def get_news():
+
+    try:
+
+        r = requests.get(
+            "https://newsapi.org/v2/everything?q=islam&quran&language=ar&pageSize=2"
         )
-        
-        response_text = completion.choices[0].message.content
-        match = re.search(r'\{.*\}', response_text.replace('\n', ''), re.DOTALL)
-        if match:
-            data = json.loads(match.group(0))
-            print(f"🧠 اختيار الذكاء الاصطناعي: سورة {data.get('surah')}, آية {data.get('ayah')}")
-            return data.get("surah", random.randint(1, 114)), data.get("ayah", 1)
-        else:
-            return random.randint(1, 114), 1
 
-    except Exception as e:
-        print(f"❌ خطأ في الذكاء الاصطناعي: {e}")
-        return random.randint(1, 114), 1
+        data = r.json()
+
+        return [a["title"] for a in data["articles"]]
+
+    except:
+
+        return []
+
+
+def get_channel_stats(youtube):
+
+    try:
+
+        res = (
+            youtube.channels()
+            .list(part="statistics", mine=True)
+            .execute()
+        )
+
+        stats = res["items"][0]["statistics"]
+
+        return stats
+
+    except:
+
+        return {}
+
+
+# ================= الفيديو =================
 
 def build_shorts_video():
-    print("🚀 [1/4] تحضير الموارد (1080p)...")
+
     youtube = youtube_authenticate()
-    
-    # استدعاء الذكاء الاصطناعي لتحديد السورة وبداية الآية
-    s_id, start_ayah = get_ai_quran_choice(youtube)
-    
-    res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-    res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
-    s_name = res_ar['name']
-    
+
+    stats = get_channel_stats(youtube)
+    news = get_news()
+    hijri = get_hijri_date()
+
+    ai_text = ai_analyze(stats, news, hijri)
+
+    print("AI Result:", ai_text)
+
+    s_id = random.randint(1, 114)
+
+    res_ar = requests.get(
+        f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}"
+    ).json()["data"]
+
+    res_en = requests.get(
+        f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih"
+    ).json()["data"]
+
+    s_name = res_ar["name"]
+
     audio_clips = []
     text_parts_ar = []
     text_parts_en = []
-    current_duration = 0
 
-    # تحديد الفهرس (Index) للآية المطلوبة لتجنب الأخطاء
-    start_index = max(0, start_ayah - 1)
-    if start_index >= len(res_ar['ayahs']):
-        start_index = 0
+    duration = 0
 
-    # قص قائمة الآيات لتبدأ من اختيار الذكاء الاصطناعي
-    ayahs_ar = res_ar['ayahs'][start_index:]
-    ayahs_en = res_en['ayahs'][start_index:]
+    for i, (a_ar, a_en) in enumerate(zip(res_ar["ayahs"], res_en["ayahs"])):
 
-    for i, (a_ar, a_en) in enumerate(zip(ayahs_ar, ayahs_en)):
-        f_path = f"temp_{i}.mp3"
-        with open(f_path, 'wb') as f:
-            f.write(requests.get(a_ar['audio']).content)
-        
-        clip = mp.AudioFileClip(f_path)
+        path = f"temp{i}.mp3"
+
+        with open(path, "wb") as f:
+            f.write(requests.get(a_ar["audio"]).content)
+
+        clip = mp.AudioFileClip(path)
+
         audio_clips.append(clip)
-        text_parts_ar.append(a_ar['text'])
-        text_parts_en.append(a_en['text'])
-        
-        current_duration += clip.duration
-        if current_duration >= 50: break
 
-    # --- معالجة الصوت بدون تقطيع ---
+        text_parts_ar.append(a_ar["text"])
+        text_parts_en.append(a_en["text"])
+
+        duration += clip.duration
+
+        if duration >= 50:
+            break
+
     final_audio = mp.concatenate_audioclips(audio_clips)
-    dur = min(59.0, final_audio.duration)
-    final_audio = final_audio.subclip(0, dur)
-    
-    starts = [0.0]
-    for clip in audio_clips[:-1]:
-        starts.append(starts[-1] + clip.duration)
 
-    # اختيار خلفية
-    headers = {'Authorization': PEXELS_API_KEY}
-    v_res = requests.get('https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=15', headers=headers).json()
-    v_url = random.choice(v_res['videos'])['video_files'][0]['link']
-    with open("bg_v.mp4", "wb") as f: f.write(requests.get(v_url).content)
+    dur = min(59, final_audio.duration)
 
-    print(f"⚙️ [2/4] المونتاج...")
-    bg = loop(mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT), duration=dur)
-    dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.4)
+    headers = {"Authorization": PEXELS_API_KEY}
 
-    font_ar = ImageFont.truetype(FONT_PATH_AR, 95) 
-    font_en = ImageFont.truetype(FONT_PATH_EN, 45)
-    font_s = ImageFont.truetype(FONT_PATH_AR, 140)
+    v = requests.get(
+        "https://api.pexels.com/videos/search?query=nature&orientation=portrait&per_page=10",
+        headers=headers,
+    ).json()
 
-    text_clips = []
-    for i in range(len(audio_clips)):
-        c_start = starts[i]
-        c_end = starts[i+1] if i < len(starts)-1 else dur
-        if c_start >= dur: break
+    url = random.choice(v["videos"])["video_files"][0]["link"]
 
-        img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
-        
-        ar_lines = safe_wrap(text_parts_ar[i], width=40)
-        en_lines = safe_wrap(text_parts_en[i], width=35)
-        
-        y_off = (HEIGHT - (len(ar_lines)*130 + 50 + len(en_lines)*60)) / 2
-        for line in ar_lines:
-            draw_text_with_shadow(d, (WIDTH/2, y_off), process_ar_new(line), font_ar, "white")
-            y_off += 130
-        y_off += 50
-        for line in en_lines:
-            d.text((WIDTH/2, y_off), line, font=font_en, fill="#F0F0F0", anchor="mm", stroke_width=2, stroke_fill="black")
-            y_off += 60
-        
-        t_clip = mp.ImageClip(np.array(img)).set_start(c_start).set_end(min(c_end, dur))
-        text_clips.append(t_clip)
+    with open("bg.mp4", "wb") as f:
+        f.write(requests.get(url).content)
 
-    title_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
-    draw_text_with_shadow(ImageDraw.Draw(title_img), (WIDTH/2, 250), process_ar_new(s_name), font_s, "white")
-    title_clip = mp.ImageClip(np.array(title_img)).set_duration(dur)
+    bg = loop(
+        mp.VideoFileClip("bg.mp4")
+        .resize(height=HEIGHT)
+        .crop(x1=0, y1=0, width=WIDTH, height=HEIGHT),
+        duration=dur,
+    )
 
-    final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips).set_audio(final_audio)
+    final = bg.set_audio(final_audio)
 
-    print("⏳ [3/4] رندر سريع (1080p)...")
-    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="10000k", preset="ultrafast", logger=None, threads=4)
+    final.write_videofile(
+        "final.mp4",
+        fps=24,
+        codec="libx264",
+        audio_codec="aac",
+        bitrate="10000k",
+        preset="ultrafast",
+    )
 
-    print("📡 [4/4] الرفع...")
-    body = {'snippet': {'title': f'تلاوة خاشعة - {s_name} #shorts #quran', 'description': f'سورة {s_name}', 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
-    youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)).execute()
-    print(f"✅ تم بنجاح بجودة 1080p!")
+    body = {
+        "snippet": {
+            "title": f"{s_name} | تلاوة خاشعة #shorts",
+            "description": ai_text,
+            "categoryId": "22",
+        },
+        "status": {"privacyStatus": "public"},
+    }
+
+    youtube.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=MediaFileUpload("final.mp4", resumable=True),
+    ).execute()
+
+    print("تم الرفع بنجاح")
+
 
 if __name__ == "__main__":
-    if not is_uploaded_today() or os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
+
+    if not is_uploaded_today() or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+
         try:
+
             build_shorts_video()
+
             mark_uploaded_today()
+
         except Exception as e:
-            print("🔥 خطأ:", e); sys.exit(1)
+
+            print("خطأ", e)
+
+            sys.exit(1)
