@@ -33,13 +33,12 @@ jobs:
       - name: Install Libraries
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install moviepy==1.0.3 Pillow==9.5.0 arabic-reshaper python-bidi requests numpy google-api-python-client google-auth-oauthlib scipy
 
       - name: Run Bot
         env:
           TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           python main.py
 
