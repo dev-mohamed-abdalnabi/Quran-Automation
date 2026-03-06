@@ -1,60 +1,57 @@
 name: Daily Quran Auto
 
 on:
-schedule:
-# التوقيت:
-# 3 UTC = الساعة 5:00 فجراً بتوقيت مصر
-# 3-11 = يفضل يحاول من 5 الفجر لحد 1 الظهر
-- cron: '17,32,47 3-11 * * *'
-workflow_dispatch:
+  schedule:
+    - cron: '17,32,47 3-11 * * *'
+  workflow_dispatch:
 
 permissions:
-contents: write
+  contents: write
 
 concurrency:
-group: daily-quran-auto
-cancel-in-progress: false
+  group: daily-quran-auto
+  cancel-in-progress: false
 
 jobs:
-build-and-upload:
-runs-on: ubuntu-latest
+  build-and-upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: true
 
-steps:
-  - name: Checkout code
-    uses: actions/checkout@v3
-    with:
-      persist-credentials: true
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-  - name: Set up Python
-    uses: actions/setup-python@v4
-    with:
-      python-version: '3.9'
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-  - name: Install FFmpeg
-    run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install Libraries
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
 
-  - name: Install Libraries
-    run: |
-      pip install --upgrade pip
-      pip install moviepy==1.0.3 Pillow==9.5.0 arabic-reshaper python-bidi requests numpy google-api-python-client google-auth-oauthlib
+      - name: Run Bot
+        env:
+          TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          python main.py
 
-  - name: Run Bot
-    env:
-      TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
-      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-    run: |
-      python main.py
-
-  - name: Commit daily log if updated
-    if: success()
-    run: |
-      if git status --porcelain | grep daily_log.txt; then
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add daily_log.txt
-        git commit -m "Update daily upload log [skip ci]"
-        git push
-      else
-        echo "No log changes to commit"
-      fi
+      - name: Commit daily log if updated
+        if: success()
+        run: |
+          if git status --porcelain | grep daily_log.txt; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add daily_log.txt
+            git commit -m "Update daily upload log [skip ci]"
+            git push
+          else
+            echo "No log changes to commit"
+          fi
