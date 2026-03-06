@@ -1,5 +1,4 @@
-
-import os, requests, random, json, base64, sys
+import os, requests, random, json, base64, sys, re
 from datetime import datetime
 import numpy as np
 import moviepy.editor as mp
@@ -10,6 +9,8 @@ from PIL import Image, ImageFont, ImageDraw
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from groq import Groq
+from hijri_converter import Gregorian
 
 # ================== إعدادات الأبعاد (Full HD 1080p) ==================
 WIDTH = 1080
@@ -39,7 +40,8 @@ def mark_uploaded_today():
 
 # ================== الإعدادات والخطوط ==================
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
-AUDIO_EDITION = 'ar.alafasy'
+# تم تغيير الصوت إلى الشيخ عبد الباسط عبد الصمد المرتل
+AUDIO_EDITION = 'ar.abdulbasitmurattal' 
 
 FONT_PATH_AR = "Amiri-Regular.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
@@ -85,10 +87,68 @@ def youtube_authenticate():
     creds = Credentials.from_authorized_user_info(token_data)
     return build('youtube', 'v3', credentials=creds)
 
+# ================== الذكاء الاصطناعي لاختيار الآيات ==================
+def get_ai_quran_choice(youtube_client):
+    try:
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            print("⚠️ مفتاح GROQ_API_KEY غير موجود، سيتم الاختيار عشوائياً.")
+            return random.randint(1, 114), 1
+
+        # جلب الإحصائيات
+        subs, views = 0, 0
+        try:
+            req = youtube_client.channels().list(mine=True, part="statistics")
+            res = req.execute()
+            stats = res['items'][0]['statistics']
+            views = int(stats.get('viewCount', 0))
+            subs = int(stats.get('subscriberCount', 0))
+        except Exception as e:
+            print(f"⚠️ تعذر جلب إحصائيات القناة: {e}")
+
+        # التواريخ
+        today = datetime.utcnow()
+        hijri = Gregorian(today.year, today.month, today.day).to_hijri()
+
+        prompt = f"""
+        أنت مساعد ذكي إسلامي.
+        - تاريخ اليوم الميلادي: {today.strftime('%Y-%m-%d')}
+        - تاريخ اليوم الهجري: {hijri}
+        - إحصائيات القناة: {subs} مشترك، {views} مشاهدة.
+        
+        بناءً على التواريخ والمناسبات الحالية، اختر سورة وآية للبدء منها لتكون مؤثرة لمقطع يوتيوب شورتس.
+        يجب أن يكون الرد عبارة عن كود JSON فقط بدون أي نص إضافي، بهذا الشكل:
+        {{"surah": رقم السورة (1-114), "ayah": رقم الآية}}
+        """
+
+        client = Groq(api_key=api_key)
+        completion = client.chat.completions.create(
+            model="llama3-70b-8192",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=150,
+        )
+        
+        response_text = completion.choices[0].message.content
+        match = re.search(r'\{.*\}', response_text.replace('\n', ''), re.DOTALL)
+        if match:
+            data = json.loads(match.group(0))
+            print(f"🧠 اختيار الذكاء الاصطناعي: سورة {data.get('surah')}, آية {data.get('ayah')}")
+            return data.get("surah", random.randint(1, 114)), data.get("ayah", 1)
+        else:
+            return random.randint(1, 114), 1
+
+    except Exception as e:
+        print(f"❌ خطأ في الذكاء الاصطناعي: {e}")
+        return random.randint(1, 114), 1
+
 def build_shorts_video():
     print("🚀 [1/4] تحضير الموارد (1080p)...")
+    youtube = youtube_authenticate()
     
-    s_id = random.randint(1, 114)
+    # استدعاء الذكاء الاصطناعي لتحديد السورة وبداية الآية
+    s_id, start_ayah = get_ai_quran_choice(youtube)
+    
     res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
     res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
     s_name = res_ar['name']
@@ -98,7 +158,16 @@ def build_shorts_video():
     text_parts_en = []
     current_duration = 0
 
-    for i, (a_ar, a_en) in enumerate(zip(res_ar['ayahs'], res_en['ayahs'])):
+    # تحديد الفهرس (Index) للآية المطلوبة لتجنب الأخطاء
+    start_index = max(0, start_ayah - 1)
+    if start_index >= len(res_ar['ayahs']):
+        start_index = 0
+
+    # قص قائمة الآيات لتبدأ من اختيار الذكاء الاصطناعي
+    ayahs_ar = res_ar['ayahs'][start_index:]
+    ayahs_en = res_en['ayahs'][start_index:]
+
+    for i, (a_ar, a_en) in enumerate(zip(ayahs_ar, ayahs_en)):
         f_path = f"temp_{i}.mp3"
         with open(f_path, 'wb') as f:
             f.write(requests.get(a_ar['audio']).content)
@@ -116,7 +185,6 @@ def build_shorts_video():
     dur = min(59.0, final_audio.duration)
     final_audio = final_audio.subclip(0, dur)
     
-    # حساب توقيتات الآيات بدقة بناءً على الترتيب المتتالي
     starts = [0.0]
     for clip in audio_clips[:-1]:
         starts.append(starts[-1] + clip.duration)
@@ -169,7 +237,6 @@ def build_shorts_video():
     final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="10000k", preset="ultrafast", logger=None, threads=4)
 
     print("📡 [4/4] الرفع...")
-    youtube = youtube_authenticate()
     body = {'snippet': {'title': f'تلاوة خاشعة - {s_name} #shorts #quran', 'description': f'سورة {s_name}', 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
     youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)).execute()
     print(f"✅ تم بنجاح بجودة 1080p!")
@@ -181,4 +248,3 @@ if __name__ == "__main__":
             mark_uploaded_today()
         except Exception as e:
             print("🔥 خطأ:", e); sys.exit(1)
-
