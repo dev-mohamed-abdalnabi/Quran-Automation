@@ -1,4 +1,3 @@
-
 import os, requests, random, json, base64, sys
 from datetime import datetime
 import numpy as np
@@ -14,12 +13,6 @@ from googleapiclient.http import MediaFileUpload
 # ================== إعدادات الأبعاد (Full HD 1080p) ==================
 WIDTH = 1080
 HEIGHT = 1920
-
-BOX_X = 75
-BOX_Y = 420
-BOX_W = 930
-BOX_H = 1125
-BOX_OPACITY = 160
 
 # ================== سجل يومي ==================
 LOG_FILE = "daily_log.txt"
@@ -97,6 +90,7 @@ def build_shorts_video():
     text_parts_ar = []
     text_parts_en = []
     current_duration = 0
+    MAX_DURATION = 59.0 # الحد الأقصى الصارم للفيديو (59 ثانية لضمان قبوله كـ Short)
 
     for i, (a_ar, a_en) in enumerate(zip(res_ar['ayahs'], res_en['ayahs'])):
         f_path = f"temp_{i}.mp3"
@@ -104,37 +98,54 @@ def build_shorts_video():
             f.write(requests.get(a_ar['audio']).content)
         
         clip = mp.AudioFileClip(f_path)
+        
+        # التأكد من عدم تخطي حاجز الـ 59 ثانية
+        if current_duration + clip.duration > MAX_DURATION:
+            os.remove(f_path) # حذف الملف الذي لن نستخدمه
+            break
+            
         audio_clips.append(clip)
         text_parts_ar.append(a_ar['text'])
         text_parts_en.append(a_en['text'])
-        
         current_duration += clip.duration
-        if current_duration >= 50: break
 
-    # --- معالجة الصوت بدون تقطيع ---
     final_audio = mp.concatenate_audioclips(audio_clips)
-    dur = min(70.0, final_audio.duration)
-    final_audio = final_audio.subclip(0, dur)
+    dur = final_audio.duration
     
-    # حساب توقيتات الآيات بدقة بناءً على الترتيب المتتالي
     starts = [0.0]
     for clip in audio_clips[:-1]:
         starts.append(starts[-1] + clip.duration)
 
-     # اختيار خلفية "آمنة" (جبال، سحاب، صحراء) بعيداً عن التماثيل والناس
-    print("🎬 [2/4] اختيار خلفية طبيعية آمنة...")
+    print("🎬 [2/4] اختيار خلفية طبيعية طويلة وآمنة...")
     PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
     headers = {'Authorization': PEXELS_API_KEY}
-    # كلمات بحث دقيقة لمنع التماثيل
-    safe_queries = ['mountains', 'clouds', 'desert', 'galaxy', 'sky night']
+    
+    # كلمات بحث دقيقة لمنع التماثيل والبشر والحيوانات
+    safe_queries = ['empty desert nature', 'clouds in sky', 'dark starry night sky', 'mountain landscape nature empty', 'ocean waves aerial']
     query = random.choice(safe_queries)
     
-    v_res = requests.get(f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=15', headers=headers).json()
-    v_url = random.choice(v_res['videos'])['video_files'][0]['link']
+    # طلب 30 فيديو لزيادة احتمالية العثور على فيديو طويل
+    v_res = requests.get(f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=30', headers=headers).json()
+    videos = v_res.get('videos', [])
+    
+    # تصفية الفيديوهات لاختيار الفيديوهات التي مدتها أكبر من مدة الصوت (لمنع التكرار)
+    valid_videos = [v for v in videos if v.get('duration', 0) >= dur]
+    
+    if valid_videos:
+        selected_video = random.choice(valid_videos)
+    elif videos:
+        # إذا لم نجد فيديو طويل كفاية، نختار الأطول من بين المتاح
+        selected_video = max(videos, key=lambda x: x.get('duration', 0))
+    else:
+        raise Exception("لم يتم العثور على فيديوهات من Pexels!")
+
+    v_url = selected_video['video_files'][0]['link']
     with open("bg_v.mp4", "wb") as f: f.write(requests.get(v_url).content)
     
     print(f"⚙️ [2/4] المونتاج...")
+    # تم الإبقاء على loop كإجراء احتياطي فقط لو كان الفيديو الأطول أقصر بقليل من مدة الصوت
     bg = loop(mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT), duration=dur)
+    bg = bg.subclip(0, dur) # قص الفيديو ليتطابق تماماً مع مدة الصوت
     dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.4)
 
     font_ar = ImageFont.truetype(FONT_PATH_AR, 95) 
@@ -145,7 +156,6 @@ def build_shorts_video():
     for i in range(len(audio_clips)):
         c_start = starts[i]
         c_end = starts[i+1] if i < len(starts)-1 else dur
-        if c_start >= dur: break
 
         img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
@@ -162,7 +172,7 @@ def build_shorts_video():
             d.text((WIDTH/2, y_off), line, font=font_en, fill="#F0F0F0", anchor="mm", stroke_width=2, stroke_fill="black")
             y_off += 60
         
-        t_clip = mp.ImageClip(np.array(img)).set_start(c_start).set_end(min(c_end, dur))
+        t_clip = mp.ImageClip(np.array(img)).set_start(c_start).set_end(c_end)
         text_clips.append(t_clip)
 
     title_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
@@ -178,7 +188,7 @@ def build_shorts_video():
     youtube = youtube_authenticate()
     body = {'snippet': {'title': f'تلاوة خاشعة - {s_name} #shorts #quran', 'description': f'سورة {s_name}', 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
     youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)).execute()
-    print(f"✅ تم بنجاح بجودة 1080p!")
+    print(f"✅ تم بنجاح بجودة 1080p! (المدة: {dur:.1f} ثانية)")
 
 if __name__ == "__main__":
     if not is_uploaded_today() or os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
@@ -187,4 +197,3 @@ if __name__ == "__main__":
             mark_uploaded_today()
         except Exception as e:
             print("🔥 خطأ:", e); sys.exit(1)
-
