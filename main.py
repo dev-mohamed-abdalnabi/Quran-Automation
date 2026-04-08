@@ -12,7 +12,6 @@ from googleapiclient.http import MediaFileUpload
 WIDTH = 1080
 HEIGHT = 1920
 
-# ================== سجل يومي ==================
 LOG_FILE = "daily_log.txt"
 
 def today_str():
@@ -29,7 +28,6 @@ def mark_uploaded_today():
         f.write(today_str())
 
 # ================== إعدادات الشيوخ والخطوط ==================
-# 3 شيوخ عشوائيين بدون حقوق طبع ونشر (العفاسي، الحصري، المنشاوي)
 RECITERS = ['ar.alafasy', 'ar.husary', 'ar.minshawi']
 AUDIO_EDITION = random.choice(RECITERS)
 
@@ -66,7 +64,6 @@ def fetch_quran_chunk():
         s_id = random.randint(1, 114)
         try:
             res_audio = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-            # استخدام quran-simple لحل مشكلة الألف المخفية (مثل كلمة والروح)
             res_text_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-simple").json()['data']
             res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
         except Exception:
@@ -88,7 +85,6 @@ def fetch_quran_chunk():
             
             ar_text = a_ar['text']
             
-            # إزالة البسملة بدقة
             basmala = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ "
             if s_id != 1 and i == 0 and ar_text.startswith(basmala):
                 ar_text = ar_text.replace(basmala, "")
@@ -97,9 +93,9 @@ def fetch_quran_chunk():
             with open(f_path, 'wb') as f:
                 f.write(requests.get(a_audio['audio']).content)
             
-            # 🔥 الحل السحري لمشكلة الطق والقطع بين الآيات: إضافة Fade in/out سريع جداً يدمج الصوتيات
+            # 🔥 الحل الجذري: Micro-fade لمدة 0.02 ثانية (20 ملي ثانية) تمنع الطق تماماً بدون أي قطع ملحوظ في الصوت
             clip = mp.AudioFileClip(f_path)
-            clip = clip.fx(mp.afx.audio_fadein, 0.05).fx(mp.afx.audio_fadeout, 0.05)
+            clip = clip.fx(mp.afx.audio_fadein, 0.02).fx(mp.afx.audio_fadeout, 0.02)
             
             if current_duration + clip.duration > MAX_DURATION:
                 clip.close()
@@ -123,6 +119,8 @@ def build_shorts_video():
     audio_clips, text_parts_ar, text_parts_en, dur, s_name, start_ayah, end_ayah = fetch_quran_chunk()
     
     final_audio = mp.concatenate_audioclips(audio_clips)
+    final_audio = final_audio.fx(mp.afx.audio_fadein, 1.0).fx(mp.afx.audio_fadeout, 1.0)
+    
     starts = [0.0]
     for clip in audio_clips[:-1]:
         starts.append(starts[-1] + clip.duration)
@@ -151,9 +149,9 @@ def build_shorts_video():
     print(f"⚙️ [3/4] المونتاج...")
     bg = loop(mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT), duration=dur)
     bg = bg.subclip(0, dur) 
-    dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.55) 
+    
+    dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.35) 
 
-    font_en = ImageFont.truetype(FONT_PATH_EN, 45)
     font_s = ImageFont.truetype(FONT_PATH_AR, 110)
 
     text_clips = []
@@ -166,31 +164,31 @@ def build_shorts_video():
         
         ar_char_count = len(text_parts_ar[i])
         if ar_char_count < 60:
-            f_size, w_wrap, y_space = 100, 35, 130
+            f_size, w_wrap, y_space = 110, 35, 140
         elif ar_char_count < 140:
-            f_size, w_wrap, y_space = 80, 45, 100
-        elif ar_char_count < 250:
-            f_size, w_wrap, y_space = 60, 50, 80
+            f_size, w_wrap, y_space = 90, 40, 115
+        elif ar_char_count < 200:
+            f_size, w_wrap, y_space = 75, 45, 95
         else:
-            f_size, w_wrap, y_space = 45, 65, 60
+            f_size, w_wrap, y_space = 65, 50, 85
             
         font_ar_dynamic = ImageFont.truetype(FONT_PATH_AR, f_size)
+        font_en_dynamic = ImageFont.truetype(FONT_PATH_EN, int(f_size * 0.45))
         
         ar_lines = safe_wrap(text_parts_ar[i], width=w_wrap)
         en_lines = safe_wrap(text_parts_en[i], width=w_wrap)
         
-        total_h = (len(ar_lines) * y_space) + 50 + (len(en_lines) * 60)
+        total_h = (len(ar_lines) * y_space) + 50 + (len(en_lines) * (int(f_size * 0.45) + 15))
         y_off = max(400, (HEIGHT - total_h) / 2) 
         
         for line in ar_lines:
-            # استمرار استخدام الرسم الصحيح للنصوص
-            d.text((WIDTH/2, y_off), line, font=font_ar_dynamic, fill="white", anchor="mm", stroke_width=3, stroke_fill="black", direction="rtl", language="ar")
+            d.text((WIDTH/2, y_off), line, font=font_ar_dynamic, fill="white", anchor="mm", stroke_width=4, stroke_fill="black", direction="rtl", language="ar")
             y_off += y_space
             
         y_off += 50
         for line in en_lines:
-            d.text((WIDTH/2, y_off), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=2, stroke_fill="black")
-            y_off += 60
+            d.text((WIDTH/2, y_off), line, font=font_en_dynamic, fill="#E0E0E0", anchor="mm", stroke_width=2, stroke_fill="black")
+            y_off += int(f_size * 0.45) + 15
         
         t_clip = mp.ImageClip(np.array(img)).set_start(c_start).set_end(c_end)
         text_clips.append(t_clip)
@@ -220,13 +218,31 @@ def build_shorts_video():
     youtube = youtube_authenticate()
     
     ayah_range_str = f"الآيات {start_ayah}-{end_ayah}" if start_ayah != end_ayah else f"آية {start_ayah}"
-    v_title = f"تلاوة خاشعة 🤍 {s_name} ({ayah_range_str}) #shorts #quran"
-    
-    # تحديد اسم القارئ في الوصف بشكل ديناميكي
     reciter_names = {'ar.alafasy': 'مشاري العفاسي', 'ar.husary': 'محمود خليل الحصري', 'ar.minshawi': 'محمد صديق المنشاوي'}
     current_reciter = reciter_names.get(AUDIO_EDITION, "الشيخ")
+
+    title_templates = [
+        "تلاوة خاشعة تريح القلب 🤍 {s_name} ({ayah_range_str}) #shorts #quran",
+        "الشيخ {current_reciter} | {s_name} ({ayah_range_str}) تلاوة هادئة 🌿 #قرآن",
+        "آيات تريح النفس والقلب 🎧 {s_name} ({ayah_range_str}) #shorts",
+        "تلاوة من سورة {s_name} بصوت {current_reciter} 🤍 #quran_shorts",
+        "اسمع وتأمل.. {s_name} ({ayah_range_str}) تلاوة خاشعة ✨ #قرآن_كريم",
+        "عطر مسامعك بالقرآن الكريم 🕊️ {s_name} ({ayah_range_str}) #shorts",
+        "روعة التلاوة بصوت {current_reciter} | {s_name} 🤍 #quran"
+    ]
     
-    v_desc = f"تلاوة تريح القلب من {s_name} بصوت الشيخ {current_reciter}.\n\n#قرآن #تلاوة #quran #راحة_نفسية"
+    desc_templates = [
+        "تلاوة تريح القلب من سورة {s_name} بصوت الشيخ {current_reciter}.\n\n#قرآن #تلاوة #quran #راحة_نفسية",
+        "استمع إلى آيات من {s_name} بصوت عذب يريح الأعصاب للشيخ {current_reciter}.\n\n#القرآن_الكريم #shorts #تلاوة_خاشعة",
+        "مقطع قرآني قصير من {s_name} لتريح قلبك وعقلك. القارئ: {current_reciter}.\n\n#quran #قرآن #تلاوات",
+        "لا تنس ذكر الله. تلاوة هادئة من {s_name} بصوت {current_reciter}.\n\n#صدقة_جارية #القرآن #shorts",
+        "تلاوة مميزة من {s_name}، {ayah_range_str} بصوت الشيخ {current_reciter}.\n\n#quran_karim #تلاوة #راحة",
+        "آيات من كتاب الله (سورة {s_name}) تتلى على مسامعكم بصوت {current_reciter}.\n\n#القرآن #quran #تلاوات_قصيرة",
+        "شارك المقطع لتنال الأجر 🤍 تلاوة خاشعة من {s_name} بصوت {current_reciter}.\n\n#قرآن #quran #اجر"
+    ]
+
+    v_title = random.choice(title_templates).format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
+    v_desc = random.choice(desc_templates).format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
     
     body = {'snippet': {'title': v_title, 'description': v_desc, 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
     youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)).execute()
