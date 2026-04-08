@@ -1,4 +1,4 @@
-import os, requests, random, json, base64, sys
+import os, requests, random, json, base64, sys, glob
 from datetime import datetime
 import numpy as np
 import moviepy.editor as mp
@@ -31,18 +31,13 @@ def mark_uploaded_today():
         f.write(today_str())
 
 # ================== الإعدادات والخطوط ==================
-PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 AUDIO_EDITION = 'ar.alafasy'
 
 FONT_PATH_AR = "Amiri-Regular.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
-reshaper_old = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': True, 'support_ligatures': True})
+# استخدام reshaper_new للحفاظ على التشكيل الكامل للآيات
 reshaper_new = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
-
-def process_ar_old(t):
-    try: return get_display(reshaper_old.reshape(t))[::-1]
-    except: return t
 
 def process_ar_new(t):
     try: return get_display(reshaper_new.reshape(t))[::-1]
@@ -64,77 +59,92 @@ def safe_wrap(text, width):
     if current_line: lines.append(" ".join(current_line))
     return lines
 
-def draw_text_with_shadow(draw, pos, text, font, fill_color):
-    x, y = pos
-    shadow_color = "black"
-    offsets = [(3,3), (-3,3), (3,-3), (-3,-3), (0,3), (0,-3), (3,0), (-2,0)]
-    for ox, oy in offsets:
-        draw.text((x+ox, y+oy), text, font=font, fill=shadow_color, anchor="mm")
-    draw.text((x, y), text, font=font, fill=fill_color, anchor="mm")
-
 def youtube_authenticate():
     TOKEN_B64 = os.environ.get("TOKEN_BASE64")
     token_data = json.loads(base64.b64decode(TOKEN_B64).decode('utf-8'))
     creds = Credentials.from_authorized_user_info(token_data)
     return build('youtube', 'v3', credentials=creds)
 
+def fetch_quran_chunk():
+    MAX_DURATION = 58.0
+    print("⏳ جاري البحث عن مقطع قرآني مناسب من كامل المصحف...")
+    
+    while True:
+        # 1. اختيار سورة عشوائية من الـ 114 سورة
+        s_id = random.randint(1, 114)
+        try:
+            res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
+            res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
+        except Exception as e:
+            continue
+            
+        s_name = res_ar['name']
+        total_ayahs = len(res_ar['ayahs'])
+        
+        # 2. اختيار آية بداية عشوائية داخل السورة
+        start_idx = random.randint(0, total_ayahs - 1)
+        
+        audio_clips = []
+        text_parts_ar = []
+        text_parts_en = []
+        current_duration = 0
+        
+        for i in range(start_idx, total_ayahs):
+            a_ar = res_ar['ayahs'][i]
+            a_en = res_en['ayahs'][i]
+            
+            f_path = f"temp_{i}.mp3"
+            with open(f_path, 'wb') as f:
+                f.write(requests.get(a_ar['audio']).content)
+            
+            clip = mp.AudioFileClip(f_path)
+            
+            # التأكد من عدم تخطي حاجز الـ 58 ثانية
+            if current_duration + clip.duration > MAX_DURATION:
+                clip.close()
+                os.remove(f_path)
+                break
+            else:
+                audio_clips.append(clip)
+                text_parts_ar.append(a_ar['text'])
+                text_parts_en.append(a_en['text'])
+                current_duration += clip.duration
+                
+        # إذا نجحنا في جمع آية واحدة على الأقل ولم تكن مدتها أطول من 58 ثانية
+        if len(audio_clips) > 0:
+            end_idx = start_idx + len(audio_clips) - 1
+            return audio_clips, text_parts_ar, text_parts_en, current_duration, s_name, start_idx + 1, end_idx + 1
+        else:
+            # إذا كانت الآية المختارة طويلة جداً (أكبر من 58 ثانية بمفردها)، نعيد المحاولة
+            continue
+
 def build_shorts_video():
     print("🚀 [1/4] تحضير الموارد (1080p)...")
     
-    s_id = random.randint(1, 114)
-    res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-    res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
-    s_name = res_ar['name']
+    # جلب المقطع القرآني العشوائي
+    audio_clips, text_parts_ar, text_parts_en, dur, s_name, start_ayah, end_ayah = fetch_quran_chunk()
     
-    audio_clips = []
-    text_parts_ar = []
-    text_parts_en = []
-    current_duration = 0
-    MAX_DURATION = 59.0 # الحد الأقصى الصارم للفيديو (59 ثانية لضمان قبوله كـ Short)
-
-    for i, (a_ar, a_en) in enumerate(zip(res_ar['ayahs'], res_en['ayahs'])):
-        f_path = f"temp_{i}.mp3"
-        with open(f_path, 'wb') as f:
-            f.write(requests.get(a_ar['audio']).content)
-        
-        clip = mp.AudioFileClip(f_path)
-        
-        # التأكد من عدم تخطي حاجز الـ 59 ثانية
-        if current_duration + clip.duration > MAX_DURATION:
-            os.remove(f_path) # حذف الملف الذي لن نستخدمه
-            break
-            
-        audio_clips.append(clip)
-        text_parts_ar.append(a_ar['text'])
-        text_parts_en.append(a_en['text'])
-        current_duration += clip.duration
-
     final_audio = mp.concatenate_audioclips(audio_clips)
-    dur = final_audio.duration
     
     starts = [0.0]
     for clip in audio_clips[:-1]:
         starts.append(starts[-1] + clip.duration)
 
-    print("🎬 [2/4] اختيار خلفية طبيعية طويلة وآمنة...")
+    print("🎬 [2/4] اختيار خلفية طبيعية آمنة...")
     PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
     headers = {'Authorization': PEXELS_API_KEY}
     
-    # كلمات بحث دقيقة لمنع التماثيل والبشر والحيوانات
-    safe_queries = ['empty desert nature', 'clouds in sky', 'dark starry night sky', 'mountain landscape nature empty', 'ocean waves aerial']
+    # كلمات مفتاحية صارمة لمشاهد كونية وطبيعية آمنة (بدون بشر أو حيوانات)
+    safe_queries = ['empty desert nature', 'clouds in sky', 'dark starry night sky', 'mountain landscape empty', 'ocean waves aerial']
     query = random.choice(safe_queries)
     
-    # طلب 30 فيديو لزيادة احتمالية العثور على فيديو طويل
     v_res = requests.get(f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=30', headers=headers).json()
     videos = v_res.get('videos', [])
-    
-    # تصفية الفيديوهات لاختيار الفيديوهات التي مدتها أكبر من مدة الصوت (لمنع التكرار)
     valid_videos = [v for v in videos if v.get('duration', 0) >= dur]
     
     if valid_videos:
         selected_video = random.choice(valid_videos)
     elif videos:
-        # إذا لم نجد فيديو طويل كفاية، نختار الأطول من بين المتاح
         selected_video = max(videos, key=lambda x: x.get('duration', 0))
     else:
         raise Exception("لم يتم العثور على فيديوهات من Pexels!")
@@ -142,15 +152,15 @@ def build_shorts_video():
     v_url = selected_video['video_files'][0]['link']
     with open("bg_v.mp4", "wb") as f: f.write(requests.get(v_url).content)
     
-    print(f"⚙️ [2/4] المونتاج...")
-    # تم الإبقاء على loop كإجراء احتياطي فقط لو كان الفيديو الأطول أقصر بقليل من مدة الصوت
+    print(f"⚙️ [3/4] المونتاج...")
     bg = loop(mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT), duration=dur)
-    bg = bg.subclip(0, dur) # قص الفيديو ليتطابق تماماً مع مدة الصوت
-    dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.4)
+    bg = bg.subclip(0, dur) 
+    
+    # فلتر أسود شفاف للخشوع ولتوضيح النص الأبيض
+    dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.55) 
 
-    font_ar = ImageFont.truetype(FONT_PATH_AR, 95) 
     font_en = ImageFont.truetype(FONT_PATH_EN, 45)
-    font_s = ImageFont.truetype(FONT_PATH_AR, 140)
+    font_s = ImageFont.truetype(FONT_PATH_AR, 110)
 
     text_clips = []
     for i in range(len(audio_clips)):
@@ -160,33 +170,71 @@ def build_shorts_video():
         img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
         
-        ar_lines = safe_wrap(text_parts_ar[i], width=40)
-        en_lines = safe_wrap(text_parts_en[i], width=35)
+        # ديناميكية متطورة لحجم الخط (لتحمل الآيات الطويلة مثل آيات سورة البقرة والنساء)
+        ar_char_count = len(text_parts_ar[i])
+        if ar_char_count < 60:
+            f_size, w_wrap, y_space = 100, 35, 130
+        elif ar_char_count < 140:
+            f_size, w_wrap, y_space = 80, 45, 100
+        elif ar_char_count < 250:
+            f_size, w_wrap, y_space = 60, 50, 80
+        else:
+            f_size, w_wrap, y_space = 45, 65, 60
+            
+        font_ar_dynamic = ImageFont.truetype(FONT_PATH_AR, f_size)
         
-        y_off = (HEIGHT - (len(ar_lines)*130 + 50 + len(en_lines)*60)) / 2
+        ar_lines = safe_wrap(text_parts_ar[i], width=w_wrap)
+        en_lines = safe_wrap(text_parts_en[i], width=w_wrap)
+        
+        total_h = (len(ar_lines) * y_space) + 50 + (len(en_lines) * 60)
+        
+        # ضمان بقاء النص بعيداً عن حواف الشاشة
+        y_off = max(400, (HEIGHT - total_h) / 2) 
+        
         for line in ar_lines:
-            draw_text_with_shadow(d, (WIDTH/2, y_off), process_ar_new(line), font_ar, "white")
-            y_off += 130
+            d.text((WIDTH/2, y_off), process_ar_new(line), font=font_ar_dynamic, fill="white", anchor="mm", stroke_width=3, stroke_fill="black")
+            y_off += y_space
+            
         y_off += 50
         for line in en_lines:
-            d.text((WIDTH/2, y_off), line, font=font_en, fill="#F0F0F0", anchor="mm", stroke_width=2, stroke_fill="black")
+            d.text((WIDTH/2, y_off), line, font=font_en, fill="#E0E0E0", anchor="mm", stroke_width=2, stroke_fill="black")
             y_off += 60
         
         t_clip = mp.ImageClip(np.array(img)).set_start(c_start).set_end(c_end)
         text_clips.append(t_clip)
 
     title_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
-    draw_text_with_shadow(ImageDraw.Draw(title_img), (WIDTH/2, 250), process_ar_new(s_name), font_s, "white")
+    d_title = ImageDraw.Draw(title_img)
+    
+    # عنوان احترافي يحتوي على أرقام الآيات
+    if start_ayah == end_ayah:
+        title_text = f"{s_name}\nآية {start_ayah}"
+    else:
+        title_text = f"{s_name}\nالآيات {start_ayah} - {end_ayah}"
+        
+    d_title.multiline_text((WIDTH/2, 220), process_ar_new(title_text), font=font_s, fill="#FFD700", anchor="mm", align="center", spacing=30, stroke_width=4, stroke_fill="black")
+    
     title_clip = mp.ImageClip(np.array(title_img)).set_duration(dur)
 
     final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips).set_audio(final_audio)
 
-    print("⏳ [3/4] رندر سريع (1080p)...")
-    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="10000k", preset="ultrafast", logger=None, threads=4)
+    print("⏳ [4/4] رندر سريع (1080p)...")
+    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None, threads=4)
 
-    print("📡 [4/4] الرفع...")
+    # تنظيف الملفات المؤقتة
+    for f in glob.glob("temp_*.mp3"):
+        os.remove(f)
+    if os.path.exists("bg_v.mp4"):
+        os.remove("bg_v.mp4")
+
+    print("📡 الرفع لليوتيوب...")
     youtube = youtube_authenticate()
-    body = {'snippet': {'title': f'تلاوة خاشعة - {s_name} #shorts #quran', 'description': f'سورة {s_name}', 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
+    
+    ayah_range_str = f"الآيات {start_ayah}-{end_ayah}" if start_ayah != end_ayah else f"آية {start_ayah}"
+    v_title = f"تلاوة خاشعة 🤍 {s_name} ({ayah_range_str}) #shorts #quran"
+    v_desc = f"تلاوة تريح القلب من {s_name} بصوت مشاري العفاسي.\n\n#قرآن #تلاوة #quran #راحة_نفسية"
+    
+    body = {'snippet': {'title': v_title, 'description': v_desc, 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
     youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)).execute()
     print(f"✅ تم بنجاح بجودة 1080p! (المدة: {dur:.1f} ثانية)")
 
@@ -197,3 +245,4 @@ if __name__ == "__main__":
             mark_uploaded_today()
         except Exception as e:
             print("🔥 خطأ:", e); sys.exit(1)
+            
