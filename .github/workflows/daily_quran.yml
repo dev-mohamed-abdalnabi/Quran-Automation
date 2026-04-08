@@ -2,7 +2,9 @@ name: Daily Quran Auto
 
 on:
   schedule:
-    - cron: '17,32,47 3-11 * * *'
+    # السكربت يشتغل في الدقيقة 15، من الساعة 10 صباحاً لـ 3 العصر (بتوقيت جرينتش)
+    # ده بيعادل من 12 الظهر لـ 5 العصر بتوقيت مصر الشتوي (UTC+2) -> 6 محاولات يومياً
+    - cron: '15 10-15 * * *'
   workflow_dispatch:
 
 permissions:
@@ -26,6 +28,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+          cache: 'pip'
 
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
@@ -54,3 +57,4 @@ jobs:
           else
             echo "No log changes to commit"
           fi
+          
