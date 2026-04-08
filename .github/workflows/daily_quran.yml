@@ -2,8 +2,7 @@ name: Daily Quran Auto
 
 on:
   schedule:
-    # السكربت يشتغل في الدقيقة 15، من الساعة 10 صباحاً لـ 3 العصر (بتوقيت جرينتش)
-    # ده بيعادل من 12 الظهر لـ 5 العصر بتوقيت مصر الشتوي (UTC+2) -> 6 محاولات يومياً
+    # يعمل 6 مرات يومياً بتوقيت الذروة (من 12 الظهر لـ 5 العصر بتوقيت مصر)
     - cron: '15 10-15 * * *'
   workflow_dispatch:
 
@@ -30,13 +29,15 @@ jobs:
           python-version: '3.9'
           cache: 'pip'
 
-      - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install System Dependencies
+        # 🔥 هنا أضفنا مكتبات النظام المسؤولة عن دعم الرسم العثماني والتشكيل بشكل سليم
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg libraqm-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev
 
       - name: Install Libraries
+        # 🔥 تم حذف المكتبات التي كانت تخرب النص (arabic-reshaper و bidi)
         run: |
           pip install --upgrade pip
-          pip install moviepy==1.0.3 Pillow==9.5.0 arabic-reshaper python-bidi requests numpy google-api-python-client google-auth-oauthlib scipy
+          pip install moviepy==1.0.3 Pillow==9.5.0 requests numpy google-api-python-client google-auth-oauthlib scipy
 
       - name: Run Bot
         env:
