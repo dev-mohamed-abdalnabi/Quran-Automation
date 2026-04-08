@@ -8,11 +8,11 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# ================== إعدادات الأبعاد (Full HD 1080p) ==================
+# ================== إعدادات الأبعاد ==================
 WIDTH = 1080
 HEIGHT = 1920
 
-# ================== سجل يومي لمنع التكرار ==================
+# ================== سجل يومي ==================
 LOG_FILE = "daily_log.txt"
 
 def today_str():
@@ -28,10 +28,11 @@ def mark_uploaded_today():
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         f.write(today_str())
 
-# ================== الإعدادات والخطوط ==================
-AUDIO_EDITION = 'ar.alafasy'
+# ================== إعدادات الشيوخ والخطوط ==================
+# 3 شيوخ عشوائيين بدون حقوق طبع ونشر (العفاسي، الحصري، المنشاوي)
+RECITERS = ['ar.alafasy', 'ar.husary', 'ar.minshawi']
+AUDIO_EDITION = random.choice(RECITERS)
 
-# تأكد أن ملف الخط الجديد (سواء ثلث أو عثمان طه) مرفوع بهذا الاسم
 FONT_PATH_AR = "ArabicFont.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
@@ -59,14 +60,14 @@ def youtube_authenticate():
 
 def fetch_quran_chunk():
     MAX_DURATION = 58.0
-    print("⏳ جاري البحث عن مقطع قرآني مناسب من كامل المصحف...")
+    print("⏳ جاري البحث عن مقطع قرآني...")
     
     while True:
         s_id = random.randint(1, 114)
         try:
             res_audio = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-            # استخدام الرسم العثماني الأصلي لأن النظام الجديد سيدعمه بشكل مثالي
-            res_text_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-uthmani").json()['data']
+            # استخدام quran-simple لحل مشكلة الألف المخفية (مثل كلمة والروح)
+            res_text_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-simple").json()['data']
             res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
         except Exception:
             continue
@@ -87,20 +88,18 @@ def fetch_quran_chunk():
             
             ar_text = a_ar['text']
             
-            # 🔥 إزالة البسملة من أول الآيات بشكل دقيق
-            basmala_1 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ "
-            basmala_2 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ\n"
-            if s_id != 1 and i == 0:
-                if ar_text.startswith(basmala_1):
-                    ar_text = ar_text.replace(basmala_1, "")
-                elif ar_text.startswith(basmala_2):
-                    ar_text = ar_text.replace(basmala_2, "")
+            # إزالة البسملة بدقة
+            basmala = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ "
+            if s_id != 1 and i == 0 and ar_text.startswith(basmala):
+                ar_text = ar_text.replace(basmala, "")
             
             f_path = f"temp_{i}.mp3"
             with open(f_path, 'wb') as f:
                 f.write(requests.get(a_audio['audio']).content)
             
+            # 🔥 الحل السحري لمشكلة الطق والقطع بين الآيات: إضافة Fade in/out سريع جداً يدمج الصوتيات
             clip = mp.AudioFileClip(f_path)
+            clip = clip.fx(mp.afx.audio_fadein, 0.05).fx(mp.afx.audio_fadeout, 0.05)
             
             if current_duration + clip.duration > MAX_DURATION:
                 clip.close()
@@ -128,7 +127,7 @@ def build_shorts_video():
     for clip in audio_clips[:-1]:
         starts.append(starts[-1] + clip.duration)
 
-    print("🎬 [2/4] اختيار خلفية طبيعية آمنة...")
+    print("🎬 [2/4] اختيار خلفية طبيعية...")
     PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
     headers = {'Authorization': PEXELS_API_KEY}
     
@@ -184,7 +183,7 @@ def build_shorts_video():
         y_off = max(400, (HEIGHT - total_h) / 2) 
         
         for line in ar_lines:
-            # 🔥 تفعيل وضع الـ RTL الأصلي للخطوط العربية المعقدة
+            # استمرار استخدام الرسم الصحيح للنصوص
             d.text((WIDTH/2, y_off), line, font=font_ar_dynamic, fill="white", anchor="mm", stroke_width=3, stroke_fill="black", direction="rtl", language="ar")
             y_off += y_space
             
@@ -212,7 +211,6 @@ def build_shorts_video():
     print("⏳ [4/4] رندر سريع (1080p)...")
     final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None, threads=4)
 
-    # تنظيف الخادم من الملفات المؤقتة
     for f in glob.glob("temp_*.mp3"):
         os.remove(f)
     if os.path.exists("bg_v.mp4"):
@@ -223,7 +221,12 @@ def build_shorts_video():
     
     ayah_range_str = f"الآيات {start_ayah}-{end_ayah}" if start_ayah != end_ayah else f"آية {start_ayah}"
     v_title = f"تلاوة خاشعة 🤍 {s_name} ({ayah_range_str}) #shorts #quran"
-    v_desc = f"تلاوة تريح القلب من {s_name} بصوت مشاري العفاسي.\n\n#قرآن #تلاوة #quran #راحة_نفسية"
+    
+    # تحديد اسم القارئ في الوصف بشكل ديناميكي
+    reciter_names = {'ar.alafasy': 'مشاري العفاسي', 'ar.husary': 'محمود خليل الحصري', 'ar.minshawi': 'محمد صديق المنشاوي'}
+    current_reciter = reciter_names.get(AUDIO_EDITION, "الشيخ")
+    
+    v_desc = f"تلاوة تريح القلب من {s_name} بصوت الشيخ {current_reciter}.\n\n#قرآن #تلاوة #quran #راحة_نفسية"
     
     body = {'snippet': {'title': v_title, 'description': v_desc, 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
     youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)).execute()
@@ -236,4 +239,4 @@ if __name__ == "__main__":
             mark_uploaded_today()
         except Exception as e:
             print("🔥 خطأ:", e); sys.exit(1)
-                
+    
