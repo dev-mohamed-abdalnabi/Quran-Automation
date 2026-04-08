@@ -3,8 +3,6 @@ from datetime import datetime
 import numpy as np
 import moviepy.editor as mp
 from moviepy.video.fx.all import loop 
-import arabic_reshaper
-from bidi.algorithm import get_display
 from PIL import Image, ImageFont, ImageDraw
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -14,7 +12,7 @@ from googleapiclient.http import MediaFileUpload
 WIDTH = 1080
 HEIGHT = 1920
 
-# ================== سجل يومي ==================
+# ================== سجل يومي لمنع التكرار ==================
 LOG_FILE = "daily_log.txt"
 
 def today_str():
@@ -33,15 +31,9 @@ def mark_uploaded_today():
 # ================== الإعدادات والخطوط ==================
 AUDIO_EDITION = 'ar.alafasy'
 
-# تم تغيير اسم الخط هنا ليقرأ الخط الجديد الذي سترفعه
+# تأكد أن ملف الخط الجديد (سواء ثلث أو عثمان طه) مرفوع بهذا الاسم
 FONT_PATH_AR = "ArabicFont.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
-
-reshaper_new = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
-
-def process_ar_new(t):
-    try: return get_display(reshaper_new.reshape(t))[::-1]
-    except: return t
 
 def safe_wrap(text, width):
     words = text.split()
@@ -72,10 +64,9 @@ def fetch_quran_chunk():
     while True:
         s_id = random.randint(1, 114)
         try:
-            # استخدام الصوت للشيخ
             res_audio = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-            # استخدام النص المخفف من التشكيل المعقد لتجنب التداخل
-            res_text_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-simple").json()['data']
+            # استخدام الرسم العثماني الأصلي لأن النظام الجديد سيدعمه بشكل مثالي
+            res_text_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-uthmani").json()['data']
             res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
         except Exception:
             continue
@@ -96,12 +87,14 @@ def fetch_quran_chunk():
             
             ar_text = a_ar['text']
             
-            # 🔥 إزالة البسملة من أول آية في أي سورة (ما عدا سورة الفاتحة لأنها آية أصلية فيها)
-            basmala = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ "
-            if s_id != 1 and i == 0 and ar_text.startswith(basmala):
-                ar_text = ar_text.replace(basmala, "")
-            elif s_id != 1 and i == 0 and ar_text.startswith("بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\n"):
-                ar_text = ar_text.replace("بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\n", "")
+            # 🔥 إزالة البسملة من أول الآيات بشكل دقيق
+            basmala_1 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ "
+            basmala_2 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ\n"
+            if s_id != 1 and i == 0:
+                if ar_text.startswith(basmala_1):
+                    ar_text = ar_text.replace(basmala_1, "")
+                elif ar_text.startswith(basmala_2):
+                    ar_text = ar_text.replace(basmala_2, "")
             
             f_path = f"temp_{i}.mp3"
             with open(f_path, 'wb') as f:
@@ -191,7 +184,8 @@ def build_shorts_video():
         y_off = max(400, (HEIGHT - total_h) / 2) 
         
         for line in ar_lines:
-            d.text((WIDTH/2, y_off), process_ar_new(line), font=font_ar_dynamic, fill="white", anchor="mm", stroke_width=3, stroke_fill="black")
+            # 🔥 تفعيل وضع الـ RTL الأصلي للخطوط العربية المعقدة
+            d.text((WIDTH/2, y_off), line, font=font_ar_dynamic, fill="white", anchor="mm", stroke_width=3, stroke_fill="black", direction="rtl", language="ar")
             y_off += y_space
             
         y_off += 50
@@ -210,7 +204,7 @@ def build_shorts_video():
     else:
         title_text = f"{s_name}\nالآيات {start_ayah} - {end_ayah}"
         
-    d_title.multiline_text((WIDTH/2, 220), process_ar_new(title_text), font=font_s, fill="#FFD700", anchor="mm", align="center", spacing=30, stroke_width=4, stroke_fill="black")
+    d_title.multiline_text((WIDTH/2, 220), title_text, font=font_s, fill="#FFD700", anchor="mm", align="center", spacing=30, stroke_width=4, stroke_fill="black", direction="rtl", language="ar")
     
     title_clip = mp.ImageClip(np.array(title_img)).set_duration(dur)
     final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips).set_audio(final_audio)
@@ -218,6 +212,7 @@ def build_shorts_video():
     print("⏳ [4/4] رندر سريع (1080p)...")
     final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None, threads=4)
 
+    # تنظيف الخادم من الملفات المؤقتة
     for f in glob.glob("temp_*.mp3"):
         os.remove(f)
     if os.path.exists("bg_v.mp4"):
@@ -241,4 +236,4 @@ if __name__ == "__main__":
             mark_uploaded_today()
         except Exception as e:
             print("🔥 خطأ:", e); sys.exit(1)
-        
+                
