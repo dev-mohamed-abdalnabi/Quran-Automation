@@ -33,10 +33,10 @@ def mark_uploaded_today():
 # ================== الإعدادات والخطوط ==================
 AUDIO_EDITION = 'ar.alafasy'
 
-FONT_PATH_AR = "Amiri-Regular.ttf" 
+# تم تغيير اسم الخط هنا ليقرأ الخط الجديد الذي سترفعه
+FONT_PATH_AR = "ArabicFont.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
-# استخدام reshaper_new للحفاظ على التشكيل الكامل للآيات
 reshaper_new = arabic_reshaper.ArabicReshaper(configuration={'delete_harakat': False, 'support_ligatures': True})
 
 def process_ar_new(t):
@@ -70,18 +70,18 @@ def fetch_quran_chunk():
     print("⏳ جاري البحث عن مقطع قرآني مناسب من كامل المصحف...")
     
     while True:
-        # 1. اختيار سورة عشوائية من الـ 114 سورة
         s_id = random.randint(1, 114)
         try:
-            res_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
+            # استخدام الصوت للشيخ
+            res_audio = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
+            # استخدام النص المخفف من التشكيل المعقد لتجنب التداخل
+            res_text_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-simple").json()['data']
             res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
-        except Exception as e:
+        except Exception:
             continue
             
-        s_name = res_ar['name']
-        total_ayahs = len(res_ar['ayahs'])
-        
-        # 2. اختيار آية بداية عشوائية داخل السورة
+        s_name = res_audio['name']
+        total_ayahs = len(res_audio['ayahs'])
         start_idx = random.randint(0, total_ayahs - 1)
         
         audio_clips = []
@@ -90,42 +90,47 @@ def fetch_quran_chunk():
         current_duration = 0
         
         for i in range(start_idx, total_ayahs):
-            a_ar = res_ar['ayahs'][i]
+            a_audio = res_audio['ayahs'][i]
+            a_ar = res_text_ar['ayahs'][i]
             a_en = res_en['ayahs'][i]
+            
+            ar_text = a_ar['text']
+            
+            # 🔥 إزالة البسملة من أول آية في أي سورة (ما عدا سورة الفاتحة لأنها آية أصلية فيها)
+            basmala = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ "
+            if s_id != 1 and i == 0 and ar_text.startswith(basmala):
+                ar_text = ar_text.replace(basmala, "")
+            elif s_id != 1 and i == 0 and ar_text.startswith("بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\n"):
+                ar_text = ar_text.replace("بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\n", "")
             
             f_path = f"temp_{i}.mp3"
             with open(f_path, 'wb') as f:
-                f.write(requests.get(a_ar['audio']).content)
+                f.write(requests.get(a_audio['audio']).content)
             
             clip = mp.AudioFileClip(f_path)
             
-            # التأكد من عدم تخطي حاجز الـ 58 ثانية
             if current_duration + clip.duration > MAX_DURATION:
                 clip.close()
                 os.remove(f_path)
                 break
             else:
                 audio_clips.append(clip)
-                text_parts_ar.append(a_ar['text'])
+                text_parts_ar.append(ar_text)
                 text_parts_en.append(a_en['text'])
                 current_duration += clip.duration
                 
-        # إذا نجحنا في جمع آية واحدة على الأقل ولم تكن مدتها أطول من 58 ثانية
         if len(audio_clips) > 0:
             end_idx = start_idx + len(audio_clips) - 1
             return audio_clips, text_parts_ar, text_parts_en, current_duration, s_name, start_idx + 1, end_idx + 1
         else:
-            # إذا كانت الآية المختارة طويلة جداً (أكبر من 58 ثانية بمفردها)، نعيد المحاولة
             continue
 
 def build_shorts_video():
     print("🚀 [1/4] تحضير الموارد (1080p)...")
     
-    # جلب المقطع القرآني العشوائي
     audio_clips, text_parts_ar, text_parts_en, dur, s_name, start_ayah, end_ayah = fetch_quran_chunk()
     
     final_audio = mp.concatenate_audioclips(audio_clips)
-    
     starts = [0.0]
     for clip in audio_clips[:-1]:
         starts.append(starts[-1] + clip.duration)
@@ -134,7 +139,6 @@ def build_shorts_video():
     PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
     headers = {'Authorization': PEXELS_API_KEY}
     
-    # كلمات مفتاحية صارمة لمشاهد كونية وطبيعية آمنة (بدون بشر أو حيوانات)
     safe_queries = ['empty desert nature', 'clouds in sky', 'dark starry night sky', 'mountain landscape empty', 'ocean waves aerial']
     query = random.choice(safe_queries)
     
@@ -155,8 +159,6 @@ def build_shorts_video():
     print(f"⚙️ [3/4] المونتاج...")
     bg = loop(mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT), duration=dur)
     bg = bg.subclip(0, dur) 
-    
-    # فلتر أسود شفاف للخشوع ولتوضيح النص الأبيض
     dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.55) 
 
     font_en = ImageFont.truetype(FONT_PATH_EN, 45)
@@ -170,7 +172,6 @@ def build_shorts_video():
         img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
         
-        # ديناميكية متطورة لحجم الخط (لتحمل الآيات الطويلة مثل آيات سورة البقرة والنساء)
         ar_char_count = len(text_parts_ar[i])
         if ar_char_count < 60:
             f_size, w_wrap, y_space = 100, 35, 130
@@ -187,8 +188,6 @@ def build_shorts_video():
         en_lines = safe_wrap(text_parts_en[i], width=w_wrap)
         
         total_h = (len(ar_lines) * y_space) + 50 + (len(en_lines) * 60)
-        
-        # ضمان بقاء النص بعيداً عن حواف الشاشة
         y_off = max(400, (HEIGHT - total_h) / 2) 
         
         for line in ar_lines:
@@ -206,7 +205,6 @@ def build_shorts_video():
     title_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
     d_title = ImageDraw.Draw(title_img)
     
-    # عنوان احترافي يحتوي على أرقام الآيات
     if start_ayah == end_ayah:
         title_text = f"{s_name}\nآية {start_ayah}"
     else:
@@ -215,13 +213,11 @@ def build_shorts_video():
     d_title.multiline_text((WIDTH/2, 220), process_ar_new(title_text), font=font_s, fill="#FFD700", anchor="mm", align="center", spacing=30, stroke_width=4, stroke_fill="black")
     
     title_clip = mp.ImageClip(np.array(title_img)).set_duration(dur)
-
     final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips).set_audio(final_audio)
 
     print("⏳ [4/4] رندر سريع (1080p)...")
     final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None, threads=4)
 
-    # تنظيف الملفات المؤقتة
     for f in glob.glob("temp_*.mp3"):
         os.remove(f)
     if os.path.exists("bg_v.mp4"):
@@ -245,4 +241,4 @@ if __name__ == "__main__":
             mark_uploaded_today()
         except Exception as e:
             print("🔥 خطأ:", e); sys.exit(1)
-            
+        
