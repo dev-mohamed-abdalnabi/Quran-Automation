@@ -1,4 +1,4 @@
-Name: Daily Quran Auto
+name: Daily Quran Auto
 
 on:
   schedule:
