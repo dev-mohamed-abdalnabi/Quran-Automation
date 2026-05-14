@@ -19,25 +19,26 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # تم التحديث من v3 لـ v4 لدعم Node.js الحديثة
         with:
           persist-credentials: true
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # تم التحديث من v4 لـ v5 لدعم Node.js 20/24
         with:
           python-version: '3.9'
           cache: 'pip'
 
       - name: Install System Dependencies
-        # 🔥 هنا أضفنا مكتبات النظام المسؤولة عن دعم الرسم العثماني والتشكيل بشكل سليم
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg libraqm-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libraqm-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev
 
       - name: Install Libraries
-        # 🔥 تم حذف المكتبات التي كانت تخرب النص (arabic-reshaper و bidi)
         run: |
           pip install --upgrade pip
-          pip install moviepy==1.0.3 Pillow==9.5.0 requests numpy google-api-python-client google-auth-oauthlib scipy
+          # ملاحظة: شلنا arabic-reshaper و bidi بناءً على تعليقك في الكود الأصلي
+          pip install moviepy==1.0.3 Pillow==9.5.0 requests numpy==1.26.4 google-api-python-client google-auth-oauthlib scipy imageio-ffmpeg proglog
 
       - name: Run Bot
         env:
