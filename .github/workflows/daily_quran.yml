@@ -3,7 +3,7 @@ name: Daily Quran Auto
 on:
   schedule:
     # يعمل يومياً الساعة 7 صباحاً بتوقيت مصر (5 فجراً بتوقيت جرينتش)
-    - cron: '0 5 * * *'
+    - cron: '0 8 * * *'
   workflow_dispatch:
 
 permissions:
