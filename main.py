@@ -1,5 +1,5 @@
 import os, requests, random, json, base64, sys, glob
-from datetime import datetime
+from datetime import datetime, timezone
 import numpy as np
 import moviepy.editor as mp
 from moviepy.video.fx.all import loop 
@@ -13,19 +13,126 @@ WIDTH = 1080
 HEIGHT = 1920
 
 LOG_FILE = "daily_log.txt"
+LOW_VIEW_THRESHOLD = 10
+MIN_AUDIT_AGE_HOURS = 18
+MAX_UPLOAD_HISTORY = 60
+
 
 def today_str():
-    return datetime.utcnow().strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def load_upload_log():
+    """يدعم ملف التاريخ القديم (سطر تاريخ واحد) ثم يحوله تدريجيًا إلى سجل JSON."""
+    if not os.path.exists(LOG_FILE):
+        return {"uploads": [], "last_audit": []}
+
+    with open(LOG_FILE, "r", encoding="utf-8") as f:
+        raw = f.read().strip()
+
+    if not raw:
+        return {"uploads": [], "last_audit": []}
+
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict) and isinstance(data.get("uploads", []), list):
+            data.setdefault("last_audit", [])
+            return data
+    except json.JSONDecodeError:
+        pass
+
+    # توافق مع صيغة السجل القديمة: YYYY-MM-DD.
+    return {"uploads": [{"date": raw, "legacy": True}], "last_audit": []}
+
 
 def is_uploaded_today():
-    if not os.path.exists(LOG_FILE):
-        return False
-    with open(LOG_FILE, "r", encoding="utf-8") as f:
-        return f.read().strip() == today_str()
+    return any(entry.get("date") == today_str() for entry in load_upload_log()["uploads"])
 
-def mark_uploaded_today():
+
+def save_upload_log(log):
     with open(LOG_FILE, "w", encoding="utf-8") as f:
-        f.write(today_str())
+        json.dump(log, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def mark_uploaded_today(upload_record, audit_results):
+    log = load_upload_log()
+    uploads = [entry for entry in log["uploads"] if entry.get("date") != today_str()]
+    uploads.append(upload_record)
+    log["uploads"] = uploads[-MAX_UPLOAD_HISTORY:]
+    log["last_audit"] = audit_results
+    save_upload_log(log)
+
+
+def verify_uploaded_video(youtube, video_id):
+    """يتأكد أن الفيديو المرفوع أصبح عامًا وعلى القناة نفسها قبل تسجيل نجاح اليوم."""
+    response = youtube.videos().list(
+        part="id,snippet,status,processingDetails,statistics", id=video_id
+    ).execute()
+    items = response.get("items", [])
+    if not items:
+        raise RuntimeError(f"تعذر قراءة الفيديو المرفوع {video_id} بعد الرفع.")
+
+    video = items[0]
+    own_channels = youtube.channels().list(part="id", mine=True).execute().get("items", [])
+    expected_channel_id = own_channels[0]["id"] if own_channels else None
+    if expected_channel_id and video.get("snippet", {}).get("channelId") != expected_channel_id:
+        raise RuntimeError("تم الرفع إلى قناة غير القناة المصادق عليها؛ لن يُسجَّل كنشر ناجح.")
+    if video.get("status", {}).get("privacyStatus") != "public":
+        raise RuntimeError("تم الرفع لكن الفيديو ليس عامًا؛ لن يُسجَّل كنشر ناجح.")
+    if video.get("processingDetails", {}).get("processingStatus") == "failed":
+        raise RuntimeError("فشلت معالجة الفيديو في YouTube.")
+    return video
+
+
+def audit_recent_uploads(youtube):
+    """يرصد الفيديو العام الذي يظل دون حد أدنى من المشاهدات بعد نافذة أولية."""
+    log = load_upload_log()
+    candidates = []
+    now = datetime.now(timezone.utc)
+    for entry in log["uploads"]:
+        if entry.get("legacy") or not entry.get("video_id") or not entry.get("uploaded_at"):
+            continue
+        uploaded_at = datetime.fromisoformat(entry["uploaded_at"].replace("Z", "+00:00"))
+        if (now - uploaded_at).total_seconds() >= MIN_AUDIT_AGE_HOURS * 3600:
+            candidates.append(entry)
+
+    if not candidates:
+        print("ℹ️ لا توجد فيديوهات سابقة تجاوزت نافذة المراجعة بعد.")
+        return []
+
+    response = youtube.videos().list(
+        part="id,snippet,status,processingDetails,statistics",
+        id=",".join(entry["video_id"] for entry in candidates),
+    ).execute()
+    videos = {item["id"]: item for item in response.get("items", [])}
+    results = []
+
+    for entry in candidates:
+        video = videos.get(entry["video_id"])
+        issue = None
+        if not video:
+            issue = "الفيديو لم يعد موجودًا أو لم يعد متاحًا عبر واجهة YouTube."
+        elif video.get("status", {}).get("privacyStatus") != "public":
+            issue = f"حالة الخصوصية الحالية: {video.get('status', {}).get('privacyStatus', 'unknown')}"
+        elif video.get("processingDetails", {}).get("processingStatus") == "failed":
+            issue = "معالجة الفيديو فشلت في YouTube."
+        else:
+            views = int(video.get("statistics", {}).get("viewCount", 0))
+            if views <= LOW_VIEW_THRESHOLD:
+                issue = f"{views} مشاهدة بعد أكثر من {MIN_AUDIT_AGE_HOURS} ساعة."
+
+        result = {
+            "video_id": entry["video_id"],
+            "url": entry.get("url"),
+            "title": entry.get("title"),
+            "issue": issue,
+        }
+        results.append(result)
+        if issue:
+            print(f"::warning title=إنذار توزيع Short::{entry.get('url', entry['video_id'])} — {issue}")
+
+    return results
 
 # ================== إعدادات الشيوخ والخطوط ==================
 RECITERS = ['ar.alafasy', 'ar.husary', 'ar.minshawi']
@@ -113,7 +220,7 @@ def fetch_quran_chunk():
         else:
             continue
 
-def build_shorts_video():
+def build_shorts_video(youtube):
     print("🚀 [1/4] تحضير الموارد (1080p)...")
     
     audio_clips, text_parts_ar, text_parts_en, dur, s_name, start_ayah, end_ayah = fetch_quran_chunk()
@@ -215,7 +322,6 @@ def build_shorts_video():
         os.remove("bg_v.mp4")
 
     print("📡 الرفع لليوتيوب...")
-    youtube = youtube_authenticate()
     
     ayah_range_str = f"الآيات {start_ayah}-{end_ayah}" if start_ayah != end_ayah else f"آية {start_ayah}"
     reciter_names = {'ar.alafasy': 'مشاري العفاسي', 'ar.husary': 'محمود خليل الحصري', 'ar.minshawi': 'محمد صديق المنشاوي'}
@@ -245,14 +351,33 @@ def build_shorts_video():
     v_desc = random.choice(desc_templates).format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
     
     body = {'snippet': {'title': v_title, 'description': v_desc, 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
-    youtube.videos().insert(part="snippet,status", body=body, media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True)).execute()
-    print(f"✅ تم بنجاح بجودة 1080p! (المدة: {dur:.1f} ثانية)")
+    upload_response = youtube.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=MediaFileUpload("final.mp4", chunksize=-1, resumable=True),
+    ).execute()
+    video_id = upload_response.get("id")
+    if not video_id:
+        raise RuntimeError("لم تُرجع واجهة YouTube معرّف الفيديو بعد الرفع.")
+
+    verify_uploaded_video(youtube, video_id)
+    record = {
+        "date": today_str(),
+        "uploaded_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "video_id": video_id,
+        "url": f"https://youtu.be/{video_id}",
+        "title": v_title,
+    }
+    print(f"✅ تم التحقق من الرفع العام: {record['url']} (المدة: {dur:.1f} ثانية)")
+    return record
 
 if __name__ == "__main__":
     if not is_uploaded_today() or os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
         try:
-            build_shorts_video()
-            mark_uploaded_today()
+            youtube = youtube_authenticate()
+            audit_results = audit_recent_uploads(youtube)
+            upload_record = build_shorts_video(youtube)
+            mark_uploaded_today(upload_record, audit_results)
         except Exception as e:
             print("🔥 خطأ:", e); sys.exit(1)
     
