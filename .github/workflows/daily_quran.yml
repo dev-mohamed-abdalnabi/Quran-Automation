@@ -2,8 +2,10 @@ name: Daily Quran Auto
 
 on:
   schedule:
-    # يعمل يومياً الساعة 7 صباحاً بتوقيت مصر (5 فجراً بتوقيت جرينتش)
-    - cron: '0 8 * * *'
+    # فحص خفيف كل 15 دقيقة. بوابة التشغيل تختار وقتًا واحدًا عشوائيًا يوميًا
+    # بين 07:00 و17:00 بتوقيت Africa/Cairo، ثم تشغّل الرفع عند بلوغه.
+    # المجال الزمني في UTC يغطي التوقيت المصري صيفًا وشتاءً.
+    - cron: '*/15 4-15 * * *'
   workflow_dispatch:
 
 permissions:
@@ -14,17 +16,74 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-upload:
+  select-publish-window:
     runs-on: ubuntu-latest
-    
+    outputs:
+      should_publish: ${{ steps.window.outputs.should_publish }}
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4 # تم التحديث من v3 لـ v4 لدعم Node.js الحديثة
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Select or check today's Cairo publish window
+        id: window
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # التشغيل اليدوي يبقى متاحًا في أي وقت.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DAY_KEY="$(TZ=Africa/Cairo date +%F)"
+          HOUR="$(TZ=Africa/Cairo date +%H)"
+          MINUTE="$(TZ=Africa/Cairo date +%M)"
+          NOW_MINUTES=$((10#$HOUR * 60 + 10#$MINUTE))
+          SCHEDULE_FILE=".publish_schedule.json"
+
+          if [[ ! -f "$SCHEDULE_FILE" ]] || ! grep -q "\"date\": \"$DAY_KEY\"" "$SCHEDULE_FILE"; then
+            # 07:00 = 420، و17:00 = 1020؛ نختار دقيقة واحدة عشوائيًا داخل المجال.
+            TARGET_MINUTES=$((420 + RANDOM % 601))
+            TARGET_HOUR=$((TARGET_MINUTES / 60))
+            TARGET_MINUTE=$((TARGET_MINUTES % 60))
+
+            printf '{\n  "date": "%s",\n  "target_minute": %s,\n  "target_cairo": "%02d:%02d"\n}\n' \
+              "$DAY_KEY" "$TARGET_MINUTES" "$TARGET_HOUR" "$TARGET_MINUTE" > "$SCHEDULE_FILE"
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "$SCHEDULE_FILE"
+            git commit -m "Select Quran publish window for $DAY_KEY [skip ci]"
+            git push
+          fi
+
+          TARGET_MINUTES="$(grep -oE '"target_minute": [0-9]+' "$SCHEDULE_FILE" | grep -oE '[0-9]+')"
+          TARGET_CAIRO="$(grep -oE '"target_cairo": "[0-9]{2}:[0-9]{2}"' "$SCHEDULE_FILE" | cut -d '"' -f 4)"
+          echo "وقت النشر المختار اليوم بتوقيت القاهرة: $TARGET_CAIRO"
+
+          if (( NOW_MINUTES >= TARGET_MINUTES )); then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-upload:
+    needs: select-publish-window
+    if: needs.select-publish-window.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           persist-credentials: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5 # تم التحديث من v4 لـ v5 لدعم Node.js 20/24
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
           cache: 'pip'
@@ -37,7 +96,6 @@ jobs:
       - name: Install Libraries
         run: |
           pip install --upgrade pip
-          # ملاحظة: شلنا arabic-reshaper و bidi بناءً على تعليقك في الكود الأصلي
           pip install moviepy==1.0.3 Pillow==9.5.0 requests numpy==1.26.4 google-api-python-client google-auth-oauthlib scipy imageio-ffmpeg proglog
 
       - name: Run Bot
@@ -47,16 +105,16 @@ jobs:
         run: |
           python main.py
 
-      - name: Commit daily log if updated
+      - name: Save upload log and clear today's publish window
         if: success()
         run: |
-          if git status --porcelain | grep daily_log.txt; then
+          rm -f .publish_schedule.json
+          if git status --porcelain | grep -Eq 'daily_log.txt|\.publish_schedule.json'; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add daily_log.txt
+            git add -A daily_log.txt .publish_schedule.json
             git commit -m "Update daily upload log [skip ci]"
             git push
           else
-            echo "No log changes to commit"
+            echo "No upload log changes to commit"
           fi
-          
