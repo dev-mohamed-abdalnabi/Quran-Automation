@@ -23,6 +23,7 @@ LOG_FILE = "daily_log.txt"
 LOW_VIEW_THRESHOLD = 10
 MIN_AUDIT_AGE_HOURS = 18
 MAX_UPLOAD_HISTORY = 60
+DAILY_UPLOAD_LIMIT = 5
 
 
 def today_str():
@@ -52,8 +53,22 @@ def load_upload_log():
     return {"uploads": [{"date": raw, "legacy": True}], "last_audit": []}
 
 
+def upload_count_for_date(date_value, log=None):
+    source = log if log is not None else load_upload_log()
+    return sum(1 for entry in source["uploads"] if entry.get("date") == date_value)
+
+
+def upload_count_today():
+    return upload_count_for_date(today_str())
+
+
 def is_uploaded_today():
-    return any(entry.get("date") == today_str() for entry in load_upload_log()["uploads"])
+    """يبقى للتوافق مع السجل القديم؛ النشر نفسه يعتمد على حد يومي صريح."""
+    return upload_count_today() > 0
+
+
+def daily_upload_limit_reached():
+    return upload_count_today() >= DAILY_UPLOAD_LIMIT
 
 
 def save_upload_log(log):
@@ -379,13 +394,16 @@ def build_shorts_video(youtube):
     return record
 
 if __name__ == "__main__":
-    if not is_uploaded_today() or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
-        try:
-            youtube = youtube_authenticate()
-            audit_results = audit_recent_uploads(youtube)
-            upload_record = build_shorts_video(youtube)
-            mark_uploaded_today(upload_record, audit_results)
-        except Exception as e:
-            print("فشل التشغيل:", e)
-            sys.exit(1)
+    if daily_upload_limit_reached():
+        print(f"تم بلوغ الحد اليومي للنشر ({DAILY_UPLOAD_LIMIT} فيديوهات).")
+        sys.exit(0)
+
+    try:
+        youtube = youtube_authenticate()
+        audit_results = audit_recent_uploads(youtube)
+        upload_record = build_shorts_video(youtube)
+        mark_uploaded_today(upload_record, audit_results)
+    except Exception as e:
+        print("فشل التشغيل:", e)
+        sys.exit(1)
     

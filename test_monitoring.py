@@ -24,6 +24,17 @@ class UploadMonitoringTests(unittest.TestCase):
         log = main.load_upload_log()
         self.assertEqual(log["uploads"], [{"date": "2026-08-14", "legacy": True}])
 
+    def test_daily_upload_limit_allows_no_more_than_five_entries_for_one_day(self):
+        today = main.today_str()
+        log = {"uploads": [{"date": today, "video_id": str(index)} for index in range(5)], "last_audit": []}
+
+        self.assertEqual(main.upload_count_for_date(today, log), 5)
+        self.assertEqual(main.DAILY_UPLOAD_LIMIT, 5)
+
+        with open(main.LOG_FILE, "w", encoding="utf-8") as file:
+            json.dump(log, file)
+        self.assertTrue(main.daily_upload_limit_reached())
+
     def test_verify_uploaded_video_requires_public_video_on_authenticated_channel(self):
         youtube = Mock()
         youtube.videos().list().execute.return_value = {
