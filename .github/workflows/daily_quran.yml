@@ -33,17 +33,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # التشغيل اليدوي يبقى متاحًا في أي وقت.
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "should_publish=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           DAY_KEY="$(TZ=Africa/Cairo date +%F)"
           HOUR="$(TZ=Africa/Cairo date +%H)"
           MINUTE="$(TZ=Africa/Cairo date +%M)"
           NOW_MINUTES=$((10#$HOUR * 60 + 10#$MINUTE))
           SCHEDULE_FILE=".publish_schedule.json"
+          MAX_DAILY_UPLOADS=5
 
           if [[ ! -f "$SCHEDULE_FILE" ]] || ! grep -q "\"date\": \"$DAY_KEY\"" "$SCHEDULE_FILE"; then
             # 07:00 = 420، و17:00 = 1020؛ نختار دقيقة واحدة عشوائيًا داخل المجال.
@@ -51,7 +46,7 @@ jobs:
             TARGET_HOUR=$((TARGET_MINUTES / 60))
             TARGET_MINUTE=$((TARGET_MINUTES % 60))
 
-            printf '{\n  "date": "%s",\n  "target_minute": %s,\n  "target_cairo": "%02d:%02d"\n}\n' \
+            printf '{\n  "date": "%s",\n  "target_minute": %s,\n  "target_cairo": "%02d:%02d",\n  "attempt_count": 0,\n  "scheduled_attempted": false\n}\n' \
               "$DAY_KEY" "$TARGET_MINUTES" "$TARGET_HOUR" "$TARGET_MINUTE" > "$SCHEDULE_FILE"
 
             git config user.name "github-actions[bot]"
@@ -63,13 +58,34 @@ jobs:
 
           TARGET_MINUTES="$(grep -oE '"target_minute": [0-9]+' "$SCHEDULE_FILE" | grep -oE '[0-9]+')"
           TARGET_CAIRO="$(grep -oE '"target_cairo": "[0-9]{2}:[0-9]{2}"' "$SCHEDULE_FILE" | cut -d '"' -f 4)"
+          ATTEMPT_COUNT="$(grep -oE '"attempt_count": [0-9]+' "$SCHEDULE_FILE" | grep -oE '[0-9]+' || echo 0)"
+          SCHEDULED_ATTEMPTED="$(grep -q '"scheduled_attempted": true' "$SCHEDULE_FILE" && echo true || echo false)"
           echo "وقت النشر المختار اليوم بتوقيت القاهرة: $TARGET_CAIRO"
 
-          if (( NOW_MINUTES >= TARGET_MINUTES )); then
-            echo "should_publish=true" >> "$GITHUB_OUTPUT"
-          else
+          if (( ATTEMPT_COUNT >= MAX_DAILY_UPLOADS )); then
+            echo "تم بلوغ الحد اليومي: $MAX_DAILY_UPLOADS محاولات نشر."
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            if (( NOW_MINUTES < TARGET_MINUTES )) || [[ "$SCHEDULED_ATTEMPTED" == "true" ]]; then
+              echo "should_publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            SCHEDULED_ATTEMPTED=true
+          fi
+
+          ATTEMPT_COUNT=$((ATTEMPT_COUNT + 1))
+          printf '{\n  "date": "%s",\n  "target_minute": %s,\n  "target_cairo": "%s",\n  "attempt_count": %s,\n  "scheduled_attempted": %s\n}\n' \
+            "$DAY_KEY" "$TARGET_MINUTES" "$TARGET_CAIRO" "$ATTEMPT_COUNT" "$SCHEDULED_ATTEMPTED" > "$SCHEDULE_FILE"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$SCHEDULE_FILE"
+          git commit -m "Reserve Quran publish attempt $ATTEMPT_COUNT for $DAY_KEY [skip ci]"
+          git push
+          echo "should_publish=true" >> "$GITHUB_OUTPUT"
 
   build-and-upload:
     needs: select-publish-window
@@ -108,11 +124,10 @@ jobs:
       - name: Save upload log and clear today's publish window
         if: success()
         run: |
-          rm -f .publish_schedule.json
-          if git status --porcelain | grep -Eq 'daily_log.txt|\.publish_schedule.json'; then
+          if git status --porcelain | grep -Eq 'daily_log.txt'; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -A daily_log.txt .publish_schedule.json
+            git add daily_log.txt
             git commit -m "Update daily upload log [skip ci]"
             git push
           else
