@@ -1,14 +1,21 @@
-import os, requests, random, json, base64, sys, glob
+import base64
+import glob
+import json
+import os
+import random
+import sys
 from datetime import datetime, timezone
+
 import numpy as np
+import requests
 import moviepy.editor as mp
-from moviepy.video.fx.all import loop 
 from PIL import Image, ImageFont, ImageDraw
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from moviepy.video.fx.all import loop
 
-# ================== إعدادات الأبعاد ==================
+# مواصفات الرندر المعتمدة للقناة. لا تُغيَّر دون مراجعة مخرجات الفيديو.
 WIDTH = 1080
 HEIGHT = 1920
 
@@ -200,7 +207,7 @@ def fetch_quran_chunk():
             with open(f_path, 'wb') as f:
                 f.write(requests.get(a_audio['audio']).content)
             
-            # 🔥 الحل الجذري: Micro-fade لمدة 0.02 ثانية (20 ملي ثانية) تمنع الطق تماماً بدون أي قطع ملحوظ في الصوت
+            # انتقال صوتي قصير يمنع الطقطقة بين الآيات من دون قطع ملحوظ.
             clip = mp.AudioFileClip(f_path)
             clip = clip.fx(mp.afx.audio_fadein, 0.02).fx(mp.afx.audio_fadeout, 0.02)
             
@@ -372,12 +379,13 @@ def build_shorts_video(youtube):
     return record
 
 if __name__ == "__main__":
-    if not is_uploaded_today() or os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
+    if not is_uploaded_today() or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
         try:
             youtube = youtube_authenticate()
             audit_results = audit_recent_uploads(youtube)
             upload_record = build_shorts_video(youtube)
             mark_uploaded_today(upload_record, audit_results)
         except Exception as e:
-            print("🔥 خطأ:", e); sys.exit(1)
+            print("فشل التشغيل:", e)
+            sys.exit(1)
     

@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+
+# Temporary media generated during a publishing run.
+bg_v.mp4
+final.mp4
+temp_*.mp3
