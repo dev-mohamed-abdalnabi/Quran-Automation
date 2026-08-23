@@ -2,6 +2,6 @@
   "date": "2026-08-23",
   "target_minute": 544,
   "target_cairo": "09:04",
-  "attempt_count": 0,
-  "scheduled_attempted": false
+  "attempt_count": 1,
+  "scheduled_attempted": true
 }
