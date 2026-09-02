@@ -86,6 +86,18 @@ def mark_uploaded_today(upload_record, audit_results):
     save_upload_log(log)
 
 
+def recent_upload_meta(n=8):
+    """يرجع بيانات آخر n فيديوهات (السورة، القالب المستخدم، الخلفية) لتفادي التكرار القريب."""
+    log = load_upload_log()
+    recent = [e for e in log["uploads"] if not e.get("legacy")][-n:]
+    return {
+        "surah_ids": [e.get("surah_id") for e in recent if e.get("surah_id")],
+        "title_templates": [e.get("title_template") for e in recent if e.get("title_template") is not None],
+        "desc_templates": [e.get("desc_template") for e in recent if e.get("desc_template") is not None],
+        "bg_queries": [e.get("bg_query") for e in recent if e.get("bg_query")],
+    }
+
+
 def verify_uploaded_video(youtube, video_id):
     """يتأكد أن الفيديو المرفوع أصبح عامًا وعلى القناة نفسها قبل تسجيل نجاح اليوم."""
     response = youtube.videos().list(
@@ -163,6 +175,21 @@ AUDIO_EDITION = random.choice(RECITERS)
 FONT_PATH_AR = "ArabicFont.ttf" 
 FONT_PATH_EN = "Roboto-Regular.ttf"
 
+# نص "الهوك" يظهر في أول ثانية ونص فقط قبل الآية — الهدف منع السحب السريع (swipe-away)
+# لأن خوارزمية Shorts في 2026 تحكم على الفيديو خلال أول 1-2 ثانية فقط.
+HOOK_LINES = [
+    "توقف .. اسمع دي 🤍",
+    "قبل ما تكمل سكرول 🤍",
+    "٣٠ ثانية هتغير يومك",
+    "اسمعها وانت هادي 🎧",
+    "آية هتلمس قلبك 🤍",
+    "خد لحظة معاك دلوقتي",
+    "سيبك من الدنيا شوية",
+    "استنى .. سمّع قلبك",
+]
+
+HOOK_FONT_SIZE = 95
+
 def safe_wrap(text, width):
     words = text.split()
     lines = []
@@ -185,12 +212,19 @@ def youtube_authenticate():
     creds = Credentials.from_authorized_user_info(token_data)
     return build('youtube', 'v3', credentials=creds)
 
-def fetch_quran_chunk():
+def fetch_quran_chunk(recent_surah_ids=None):
     MAX_DURATION = 58.0
+    recent_surah_ids = recent_surah_ids or []
     print("⏳ جاري البحث عن مقطع قرآني...")
     
+    attempts = 0
     while True:
+        attempts += 1
         s_id = random.randint(1, 114)
+        # تفادي تكرار نفس السورة في آخر الفيديوهات (يقلل من "تكرار النمط" اللي خوارزمية
+        # الشورتس بتراقبه) — بعد محاولات كتير بنسمح بالتكرار عشان الفيديو مايتعلقش.
+        if s_id in recent_surah_ids and attempts < 40:
+            continue
         try:
             res_audio = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
             res_text_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-simple").json()['data']
@@ -238,14 +272,17 @@ def fetch_quran_chunk():
                 
         if len(audio_clips) > 0:
             end_idx = start_idx + len(audio_clips) - 1
-            return audio_clips, text_parts_ar, text_parts_en, current_duration, s_name, start_idx + 1, end_idx + 1
+            return audio_clips, text_parts_ar, text_parts_en, current_duration, s_name, start_idx + 1, end_idx + 1, s_id
         else:
             continue
 
 def build_shorts_video(youtube):
     print("🚀 [1/4] تحضير الموارد (1080p)...")
-    
-    audio_clips, text_parts_ar, text_parts_en, dur, s_name, start_ayah, end_ayah = fetch_quran_chunk()
+
+    recent = recent_upload_meta(n=8)
+    audio_clips, text_parts_ar, text_parts_en, dur, s_name, start_ayah, end_ayah, s_id = fetch_quran_chunk(
+        recent_surah_ids=recent["surah_ids"]
+    )
     
     final_audio = mp.concatenate_audioclips(audio_clips)
     final_audio = final_audio.fx(mp.afx.audio_fadein, 1.0).fx(mp.afx.audio_fadeout, 1.0)
@@ -258,8 +295,18 @@ def build_shorts_video(youtube):
     PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
     headers = {'Authorization': PEXELS_API_KEY}
     
-    safe_queries = ['empty desert nature', 'clouds in sky', 'dark starry night sky', 'mountain landscape empty', 'ocean waves aerial']
-    query = random.choice(safe_queries)
+    safe_queries = [
+        'empty desert nature', 'clouds in sky', 'dark starry night sky',
+        'mountain landscape empty', 'ocean waves aerial', 'waterfall forest',
+        'sunrise timelapse mountains', 'snow mountains aerial', 'misty forest morning',
+        'calm lake reflection', 'desert dunes sunset', 'galaxy stars night sky',
+        'rain on window', 'green valley aerial', 'northern lights aurora',
+        'river flowing rocks', 'autumn forest aerial', 'sand dunes wind',
+    ]
+    # تفادي تكرار نفس نوع الخلفية اللي استخدمناها في آخر الفيديوهات — التكرار البصري
+    # هو أكتر إشارة بتخلي خوارزمية Shorts تحس إن المحتوى "معاد" وتقلل توزيعه.
+    available_queries = [q for q in safe_queries if q not in recent["bg_queries"]] or safe_queries
+    query = random.choice(available_queries)
     
     v_res = requests.get(f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=30', headers=headers).json()
     videos = v_res.get('videos', [])
@@ -333,7 +380,27 @@ def build_shorts_video(youtube):
     d_title.multiline_text((WIDTH/2, 220), title_text, font=font_s, fill="#FFD700", anchor="mm", align="center", spacing=30, stroke_width=4, stroke_fill="black", direction="rtl", language="ar")
     
     title_clip = mp.ImageClip(np.array(title_img)).set_duration(dur)
-    final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips).set_audio(final_audio)
+
+    # نص الـ hook: يظهر بشكل كبير في أول 1.3 ثانية فقط عشان يمسك المشاهد قبل ما يعمل
+    # swipe. بيختفي بسرعة عشان مايتعارضش مع نص الآية.
+    hook_text = random.choice(HOOK_LINES)
+    hook_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
+    d_hook = ImageDraw.Draw(hook_img)
+    font_hook = ImageFont.truetype(FONT_PATH_AR, HOOK_FONT_SIZE)
+    d_hook.text(
+        (WIDTH / 2, HEIGHT / 2), hook_text, font=font_hook, fill="#FFD700",
+        anchor="mm", align="center", stroke_width=5, stroke_fill="black",
+        direction="rtl", language="ar",
+    )
+    hook_duration = min(1.3, dur * 0.3)
+    hook_clip = (
+        mp.ImageClip(np.array(hook_img))
+        .set_start(0)
+        .set_duration(hook_duration)
+        .crossfadeout(0.3)
+    )
+
+    final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips + [hook_clip]).set_audio(final_audio)
 
     print("⏳ [4/4] رندر سريع (1080p)...")
     final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None, threads=4)
@@ -356,7 +423,14 @@ def build_shorts_video(youtube):
         "تلاوة من سورة {s_name} بصوت {current_reciter} 🤍 #quran_shorts",
         "اسمع وتأمل.. {s_name} ({ayah_range_str}) تلاوة خاشعة ✨ #قرآن_كريم",
         "عطر مسامعك بالقرآن الكريم 🕊️ {s_name} ({ayah_range_str}) #shorts",
-        "روعة التلاوة بصوت {current_reciter} | {s_name} 🤍 #quran"
+        "روعة التلاوة بصوت {current_reciter} | {s_name} 🤍 #quran",
+        "لحظة سكون مع القرآن 🕊️ {s_name} ({ayah_range_str}) #shorts",
+        "قلبك محتاج الآيات دي 🤍 {s_name} بصوت {current_reciter}",
+        "دقيقة تأمل مع {s_name} ({ayah_range_str}) 🎧 #quran",
+        "صوت {current_reciter} يريح الأعصاب | {s_name} #shorts",
+        "اسمعها قبل ما تنام 🤍 {s_name} ({ayah_range_str})",
+        "من كتاب الله .. {s_name} ({ayah_range_str}) #قرآن_كريم",
+        "تلاوة تبكي القلب 🤍 {s_name} بصوت {current_reciter}",
     ]
     
     desc_templates = [
@@ -366,11 +440,20 @@ def build_shorts_video(youtube):
         "لا تنس ذكر الله. تلاوة هادئة من {s_name} بصوت {current_reciter}.\n\n#صدقة_جارية #القرآن #shorts",
         "تلاوة مميزة من {s_name}، {ayah_range_str} بصوت الشيخ {current_reciter}.\n\n#quran_karim #تلاوة #راحة",
         "آيات من كتاب الله (سورة {s_name}) تتلى على مسامعكم بصوت {current_reciter}.\n\n#القرآن #quran #تلاوات_قصيرة",
-        "شارك المقطع لتنال الأجر 🤍 تلاوة خاشعة من {s_name} بصوت {current_reciter}.\n\n#قرآن #quran #اجر"
+        "شارك المقطع لتنال الأجر 🤍 تلاوة خاشعة من {s_name} بصوت {current_reciter}.\n\n#قرآن #quran #اجر",
+        "لحظة سكينة من سورة {s_name}، {ayah_range_str}، بصوت {current_reciter}.\n\n#قرآن_كريم #تلاوة #سكينة",
+        "شارك مع من تحب 🤍 آيات من {s_name} بصوت {current_reciter}.\n\n#quran #قرآن #shorts",
     ]
 
-    v_title = random.choice(title_templates).format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
-    v_desc = random.choice(desc_templates).format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
+    # اختيار القالب بحيث لا يتكرر نفس القالب في آخر فيديوهين — التنويع في الشكل
+    # والصياغة من أهم الإشارات اللي بتقلل احتمال رصد المحتوى كـ"متكرر".
+    title_choices = [i for i in range(len(title_templates)) if i not in recent["title_templates"][-2:]] or list(range(len(title_templates)))
+    desc_choices = [i for i in range(len(desc_templates)) if i not in recent["desc_templates"][-2:]] or list(range(len(desc_templates)))
+    title_idx = random.choice(title_choices)
+    desc_idx = random.choice(desc_choices)
+
+    v_title = title_templates[title_idx].format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
+    v_desc = desc_templates[desc_idx].format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
     
     body = {'snippet': {'title': v_title, 'description': v_desc, 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
     upload_response = youtube.videos().insert(
@@ -389,6 +472,10 @@ def build_shorts_video(youtube):
         "video_id": video_id,
         "url": f"https://youtu.be/{video_id}",
         "title": v_title,
+        "surah_id": s_id,
+        "title_template": title_idx,
+        "desc_template": desc_idx,
+        "bg_query": query,
     }
     print(f"✅ تم التحقق من الرفع العام: {record['url']} (المدة: {dur:.1f} ثانية)")
     return record
