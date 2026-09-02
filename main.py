@@ -15,7 +15,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from moviepy.video.fx.all import loop
 
-# مواصفات الرندر المعتمدة للقناة. لا تُغيَّر دون مراجعة مخرجات الفيديو.
+# مواصفات الرندر المعتمدة للقناة. لا تُغيَّر دون مراجعة مخرجات الفيديو.
 WIDTH = 1080
 HEIGHT = 1920
 
@@ -24,6 +24,11 @@ LOW_VIEW_THRESHOLD = 10
 MIN_AUDIT_AGE_HOURS = 18
 MAX_UPLOAD_HISTORY = 60
 DAILY_UPLOAD_LIMIT = 5
+
+# مسافة أمان سفلية عشان واجهة يوتيوب شورتس (لايك/كومنت/شير) متغطيش النص
+SAFE_BOTTOM_MARGIN = 350
+# مسافة أمان علوية عشان نص العنوان (السورة/الآية) في أعلى الشاشة
+SAFE_TOP_MARGIN = 320
 
 
 def today_str():
@@ -86,6 +91,18 @@ def mark_uploaded_today(upload_record, audit_results):
     save_upload_log(log)
 
 
+def recent_upload_meta(n=8):
+    """يرجع بيانات آخر n فيديوهات (السورة، القالب المستخدم، الخلفية) لتفادي التكرار القريب."""
+    log = load_upload_log()
+    recent = [e for e in log["uploads"] if not e.get("legacy")][-n:]
+    return {
+        "surah_ids": [e.get("surah_id") for e in recent if e.get("surah_id")],
+        "title_templates": [e.get("title_template") for e in recent if e.get("title_template") is not None],
+        "desc_templates": [e.get("desc_template") for e in recent if e.get("desc_template") is not None],
+        "bg_queries": [e.get("bg_query") for e in recent if e.get("bg_query")],
+    }
+
+
 def verify_uploaded_video(youtube, video_id):
     """يتأكد أن الفيديو المرفوع أصبح عامًا وعلى القناة نفسها قبل تسجيل نجاح اليوم."""
     response = youtube.videos().list(
@@ -99,9 +116,9 @@ def verify_uploaded_video(youtube, video_id):
     own_channels = youtube.channels().list(part="id", mine=True).execute().get("items", [])
     expected_channel_id = own_channels[0]["id"] if own_channels else None
     if expected_channel_id and video.get("snippet", {}).get("channelId") != expected_channel_id:
-        raise RuntimeError("تم الرفع إلى قناة غير القناة المصادق عليها؛ لن يُسجَّل كنشر ناجح.")
+        raise RuntimeError("تم الرفع إلى قناة غير القناة المصادق عليها؛ لن يُسجَّل كنشر ناجح.")
     if video.get("status", {}).get("privacyStatus") != "public":
-        raise RuntimeError("تم الرفع لكن الفيديو ليس عامًا؛ لن يُسجَّل كنشر ناجح.")
+        raise RuntimeError("تم الرفع لكن الفيديو ليس عامًا؛ لن يُسجَّل كنشر ناجح.")
     if video.get("processingDetails", {}).get("processingStatus") == "failed":
         raise RuntimeError("فشلت معالجة الفيديو في YouTube.")
     return video
@@ -160,8 +177,25 @@ def audit_recent_uploads(youtube):
 RECITERS = ['ar.alafasy', 'ar.husary', 'ar.minshawi']
 AUDIO_EDITION = random.choice(RECITERS)
 
-FONT_PATH_AR = "ArabicFont.ttf" 
+FONT_PATH_AR = "ArabicFont.ttf"
 FONT_PATH_EN = "Roboto-Regular.ttf"
+
+# نص "الهوك" يظهر في أول لحظة قبل الآية — الهدف منع السحب السريع (swipe-away).
+# بيتحط في التلت السفلي من الشاشة عشان مايتراكبش مع نص الآية (اللي بيبدأ من المنتصف لفوق).
+HOOK_LINES = [
+    "توقف .. اسمع دي 🤍",
+    "قبل ما تكمل سكرول 🤍",
+    "٣٠ ثانية هتغير يومك",
+    "اسمعها وانت هادي 🎧",
+    "آية هتلمس قلبك 🤍",
+    "خد لحظة معاك دلوقتي",
+    "سيبك من الدنيا شوية",
+    "استنى .. سمّع قلبك",
+]
+
+HOOK_FONT_SIZE = 78
+HOOK_WRAP_WIDTH = 22
+
 
 def safe_wrap(text, width):
     words = text.split()
@@ -173,11 +207,14 @@ def safe_wrap(text, width):
             current_line.append(word)
             current_length += len(word) + 1
         else:
-            if current_line: lines.append(" ".join(current_line))
+            if current_line:
+                lines.append(" ".join(current_line))
             current_line = [word]
             current_length = len(word) + 1
-    if current_line: lines.append(" ".join(current_line))
+    if current_line:
+        lines.append(" ".join(current_line))
     return lines
+
 
 def youtube_authenticate():
     TOKEN_B64 = os.environ.get("TOKEN_BASE64")
@@ -185,47 +222,64 @@ def youtube_authenticate():
     creds = Credentials.from_authorized_user_info(token_data)
     return build('youtube', 'v3', credentials=creds)
 
-def fetch_quran_chunk():
+
+def fetch_quran_chunk(recent_surah_ids=None):
     MAX_DURATION = 58.0
+    recent_surah_ids = recent_surah_ids or []
     print("⏳ جاري البحث عن مقطع قرآني...")
-    
+
+    attempts = 0
     while True:
+        attempts += 1
         s_id = random.randint(1, 114)
+        # تفادي تكرار نفس السورة في آخر الفيديوهات — بعد محاولات كتير بنسمح بالتكرار
+        # عشان الفيديو مايتعلقش لو كل السور القريبة مستبعدة.
+        if s_id in recent_surah_ids and attempts < 40:
+            continue
         try:
-            res_audio = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}").json()['data']
-            res_text_ar = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/quran-simple").json()['data']
-            res_en = requests.get(f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih").json()['data']
+            res_audio = requests.get(
+                f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}", timeout=20
+            ).json()['data']
+            res_text_ar = requests.get(
+                f"http://api.alquran.cloud/v1/surah/{s_id}/quran-simple", timeout=20
+            ).json()['data']
+            res_en = requests.get(
+                f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih", timeout=20
+            ).json()['data']
         except Exception:
             continue
-            
+
         s_name = res_audio['name']
         total_ayahs = len(res_audio['ayahs'])
         start_idx = random.randint(0, total_ayahs - 1)
-        
+
         audio_clips = []
         text_parts_ar = []
         text_parts_en = []
         current_duration = 0
-        
+
         for i in range(start_idx, total_ayahs):
             a_audio = res_audio['ayahs'][i]
             a_ar = res_text_ar['ayahs'][i]
             a_en = res_en['ayahs'][i]
-            
+
             ar_text = a_ar['text']
-            
-            basmala = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ "
+
+            basmala = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ "
             if s_id != 1 and i == 0 and ar_text.startswith(basmala):
                 ar_text = ar_text.replace(basmala, "")
-            
+
             f_path = f"temp_{i}.mp3"
-            with open(f_path, 'wb') as f:
-                f.write(requests.get(a_audio['audio']).content)
-            
+            try:
+                with open(f_path, 'wb') as f:
+                    f.write(requests.get(a_audio['audio'], timeout=30).content)
+            except Exception:
+                break
+
             # انتقال صوتي قصير يمنع الطقطقة بين الآيات من دون قطع ملحوظ.
             clip = mp.AudioFileClip(f_path)
             clip = clip.fx(mp.afx.audio_fadein, 0.02).fx(mp.afx.audio_fadeout, 0.02)
-            
+
             if current_duration + clip.duration > MAX_DURATION:
                 clip.close()
                 os.remove(f_path)
@@ -235,21 +289,58 @@ def fetch_quran_chunk():
                 text_parts_ar.append(ar_text)
                 text_parts_en.append(a_en['text'])
                 current_duration += clip.duration
-                
+
         if len(audio_clips) > 0:
             end_idx = start_idx + len(audio_clips) - 1
-            return audio_clips, text_parts_ar, text_parts_en, current_duration, s_name, start_idx + 1, end_idx + 1
+            return audio_clips, text_parts_ar, text_parts_en, current_duration, s_name, start_idx + 1, end_idx + 1, s_id
         else:
             continue
 
+
+def build_hook_clip(dur):
+    """
+    يبني كليب الهوك في التلت السفلي من الشاشة (بعيد عن نص الآية اللي بيبدأ من
+    منتصف الشاشة لفوق) ومع مسافة أمان من واجهة يوتيوب شورتس السفلية.
+    """
+    hook_text = random.choice(HOOK_LINES)
+    hook_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
+    d_hook = ImageDraw.Draw(hook_img)
+    font_hook = ImageFont.truetype(FONT_PATH_AR, HOOK_FONT_SIZE)
+
+    lines = safe_wrap(hook_text, width=HOOK_WRAP_WIDTH)
+    line_height = int(HOOK_FONT_SIZE * 1.25)
+    block_height = len(lines) * line_height
+    y_start = HEIGHT - SAFE_BOTTOM_MARGIN - block_height
+
+    y = y_start
+    for line in lines:
+        d_hook.text(
+            (WIDTH / 2, y), line, font=font_hook, fill="#FFD700",
+            anchor="mm", align="center", stroke_width=5, stroke_fill="black",
+            direction="rtl", language="ar",
+        )
+        y += line_height
+
+    hook_duration = min(1.6, dur * 0.3)
+    return (
+        mp.ImageClip(np.array(hook_img))
+        .set_start(0)
+        .set_duration(hook_duration)
+        .crossfadeout(0.4)
+    )
+
+
 def build_shorts_video(youtube):
     print("🚀 [1/4] تحضير الموارد (1080p)...")
-    
-    audio_clips, text_parts_ar, text_parts_en, dur, s_name, start_ayah, end_ayah = fetch_quran_chunk()
-    
+
+    recent = recent_upload_meta(n=8)
+    audio_clips, text_parts_ar, text_parts_en, dur, s_name, start_ayah, end_ayah, s_id = fetch_quran_chunk(
+        recent_surah_ids=recent["surah_ids"]
+    )
+
     final_audio = mp.concatenate_audioclips(audio_clips)
     final_audio = final_audio.fx(mp.afx.audio_fadein, 1.0).fx(mp.afx.audio_fadeout, 1.0)
-    
+
     starts = [0.0]
     for clip in audio_clips[:-1]:
         starts.append(starts[-1] + clip.duration)
@@ -257,14 +348,26 @@ def build_shorts_video(youtube):
     print("🎬 [2/4] اختيار خلفية طبيعية...")
     PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
     headers = {'Authorization': PEXELS_API_KEY}
-    
-    safe_queries = ['empty desert nature', 'clouds in sky', 'dark starry night sky', 'mountain landscape empty', 'ocean waves aerial']
-    query = random.choice(safe_queries)
-    
-    v_res = requests.get(f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=30', headers=headers).json()
+
+    safe_queries = [
+        'empty desert nature', 'clouds in sky', 'dark starry night sky',
+        'mountain landscape empty', 'ocean waves aerial', 'waterfall forest',
+        'sunrise timelapse mountains', 'snow mountains aerial', 'misty forest morning',
+        'calm lake reflection', 'desert dunes sunset', 'galaxy stars night sky',
+        'rain on window', 'green valley aerial', 'northern lights aurora',
+        'river flowing rocks', 'autumn forest aerial', 'sand dunes wind',
+    ]
+    # تفادي تكرار نفس نوع الخلفية اللي استخدمناها في آخر الفيديوهات.
+    available_queries = [q for q in safe_queries if q not in recent["bg_queries"]] or safe_queries
+    query = random.choice(available_queries)
+
+    v_res = requests.get(
+        f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=30',
+        headers=headers, timeout=20,
+    ).json()
     videos = v_res.get('videos', [])
     valid_videos = [v for v in videos if v.get('duration', 0) >= dur]
-    
+
     if valid_videos:
         selected_video = random.choice(valid_videos)
     elif videos:
@@ -273,24 +376,28 @@ def build_shorts_video(youtube):
         raise Exception("لم يتم العثور على فيديوهات من Pexels!")
 
     v_url = selected_video['video_files'][0]['link']
-    with open("bg_v.mp4", "wb") as f: f.write(requests.get(v_url).content)
-    
+    with open("bg_v.mp4", "wb") as f:
+        f.write(requests.get(v_url, timeout=60).content)
+
     print(f"⚙️ [3/4] المونتاج...")
-    bg = loop(mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT), duration=dur)
-    bg = bg.subclip(0, dur) 
-    
-    dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0,0,0), duration=dur).set_opacity(0.35) 
+    bg = loop(
+        mp.VideoFileClip("bg_v.mp4").resize(height=HEIGHT).crop(x1=0, y1=0, width=WIDTH, height=HEIGHT),
+        duration=dur,
+    )
+    bg = bg.subclip(0, dur)
+
+    dark = mp.ColorClip(size=(WIDTH, HEIGHT), color=(0, 0, 0), duration=dur).set_opacity(0.35)
 
     font_s = ImageFont.truetype(FONT_PATH_AR, 110)
 
     text_clips = []
     for i in range(len(audio_clips)):
         c_start = starts[i]
-        c_end = starts[i+1] if i < len(starts)-1 else dur
+        c_end = starts[i + 1] if i < len(starts) - 1 else dur
 
         img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
-        
+
         ar_char_count = len(text_parts_ar[i])
         if ar_char_count < 60:
             f_size, w_wrap, y_space = 110, 35, 140
@@ -300,43 +407,61 @@ def build_shorts_video(youtube):
             f_size, w_wrap, y_space = 75, 45, 95
         else:
             f_size, w_wrap, y_space = 65, 50, 85
-            
+
         font_ar_dynamic = ImageFont.truetype(FONT_PATH_AR, f_size)
         font_en_dynamic = ImageFont.truetype(FONT_PATH_EN, int(f_size * 0.45))
-        
+
         ar_lines = safe_wrap(text_parts_ar[i], width=w_wrap)
         en_lines = safe_wrap(text_parts_en[i], width=w_wrap)
-        
+
         total_h = (len(ar_lines) * y_space) + 50 + (len(en_lines) * (int(f_size * 0.45) + 15))
-        y_off = max(400, (HEIGHT - total_h) / 2) 
-        
+        # نتأكد إن نص الآية مايتعداش منطقة الأمان السفلية (مكان الهوك وواجهة يوتيوب)
+        max_y_start = HEIGHT - SAFE_BOTTOM_MARGIN - total_h
+        y_off = max(SAFE_TOP_MARGIN, min((HEIGHT - total_h) / 2, max_y_start))
+
         for line in ar_lines:
-            d.text((WIDTH/2, y_off), line, font=font_ar_dynamic, fill="white", anchor="mm", stroke_width=4, stroke_fill="black", direction="rtl", language="ar")
+            d.text(
+                (WIDTH / 2, y_off), line, font=font_ar_dynamic, fill="white", anchor="mm",
+                stroke_width=4, stroke_fill="black", direction="rtl", language="ar",
+            )
             y_off += y_space
-            
+
         y_off += 50
         for line in en_lines:
-            d.text((WIDTH/2, y_off), line, font=font_en_dynamic, fill="#E0E0E0", anchor="mm", stroke_width=2, stroke_fill="black")
+            d.text(
+                (WIDTH / 2, y_off), line, font=font_en_dynamic, fill="#E0E0E0", anchor="mm",
+                stroke_width=2, stroke_fill="black",
+            )
             y_off += int(f_size * 0.45) + 15
-        
+
         t_clip = mp.ImageClip(np.array(img)).set_start(c_start).set_end(c_end)
         text_clips.append(t_clip)
 
     title_img = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, 0))
     d_title = ImageDraw.Draw(title_img)
-    
+
     if start_ayah == end_ayah:
         title_text = f"{s_name}\nآية {start_ayah}"
     else:
         title_text = f"{s_name}\nالآيات {start_ayah} - {end_ayah}"
-        
-    d_title.multiline_text((WIDTH/2, 220), title_text, font=font_s, fill="#FFD700", anchor="mm", align="center", spacing=30, stroke_width=4, stroke_fill="black", direction="rtl", language="ar")
-    
+
+    d_title.multiline_text(
+        (WIDTH / 2, 220), title_text, font=font_s, fill="#FFD700", anchor="mm", align="center",
+        spacing=30, stroke_width=4, stroke_fill="black", direction="rtl", language="ar",
+    )
+
     title_clip = mp.ImageClip(np.array(title_img)).set_duration(dur)
-    final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips).set_audio(final_audio)
+
+    # نص الـ hook في التلت السفلي — بعيد عن نص الآية، بمسافة أمان من واجهة يوتيوب.
+    hook_clip = build_hook_clip(dur)
+
+    final = mp.CompositeVideoClip([bg, dark, title_clip] + text_clips + [hook_clip]).set_audio(final_audio)
 
     print("⏳ [4/4] رندر سريع (1080p)...")
-    final.write_videofile("final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k", preset="ultrafast", logger=None, threads=4)
+    final.write_videofile(
+        "final.mp4", fps=24, codec="libx264", audio_codec="aac", bitrate="8000k",
+        preset="ultrafast", logger=None, threads=4,
+    )
 
     for f in glob.glob("temp_*.mp3"):
         os.remove(f)
@@ -344,9 +469,12 @@ def build_shorts_video(youtube):
         os.remove("bg_v.mp4")
 
     print("📡 الرفع لليوتيوب...")
-    
+
     ayah_range_str = f"الآيات {start_ayah}-{end_ayah}" if start_ayah != end_ayah else f"آية {start_ayah}"
-    reciter_names = {'ar.alafasy': 'مشاري العفاسي', 'ar.husary': 'محمود خليل الحصري', 'ar.minshawi': 'محمد صديق المنشاوي'}
+    reciter_names = {
+        'ar.alafasy': 'مشاري العفاسي', 'ar.husary': 'محمود خليل الحصري',
+        'ar.minshawi': 'محمد صديق المنشاوي',
+    }
     current_reciter = reciter_names.get(AUDIO_EDITION, "الشيخ")
 
     title_templates = [
@@ -356,9 +484,16 @@ def build_shorts_video(youtube):
         "تلاوة من سورة {s_name} بصوت {current_reciter} 🤍 #quran_shorts",
         "اسمع وتأمل.. {s_name} ({ayah_range_str}) تلاوة خاشعة ✨ #قرآن_كريم",
         "عطر مسامعك بالقرآن الكريم 🕊️ {s_name} ({ayah_range_str}) #shorts",
-        "روعة التلاوة بصوت {current_reciter} | {s_name} 🤍 #quran"
+        "روعة التلاوة بصوت {current_reciter} | {s_name} 🤍 #quran",
+        "لحظة سكون مع القرآن 🕊️ {s_name} ({ayah_range_str}) #shorts",
+        "قلبك محتاج الآيات دي 🤍 {s_name} بصوت {current_reciter}",
+        "دقيقة تأمل مع {s_name} ({ayah_range_str}) 🎧 #quran",
+        "صوت {current_reciter} يريح الأعصاب | {s_name} #shorts",
+        "اسمعها قبل ما تنام 🤍 {s_name} ({ayah_range_str})",
+        "من كتاب الله .. {s_name} ({ayah_range_str}) #قرآن_كريم",
+        "تلاوة تبكي القلب 🤍 {s_name} بصوت {current_reciter}",
     ]
-    
+
     desc_templates = [
         "تلاوة تريح القلب من سورة {s_name} بصوت الشيخ {current_reciter}.\n\n#قرآن #تلاوة #quran #راحة_نفسية",
         "استمع إلى آيات من {s_name} بصوت عذب يريح الأعصاب للشيخ {current_reciter}.\n\n#القرآن_الكريم #shorts #تلاوة_خاشعة",
@@ -366,12 +501,20 @@ def build_shorts_video(youtube):
         "لا تنس ذكر الله. تلاوة هادئة من {s_name} بصوت {current_reciter}.\n\n#صدقة_جارية #القرآن #shorts",
         "تلاوة مميزة من {s_name}، {ayah_range_str} بصوت الشيخ {current_reciter}.\n\n#quran_karim #تلاوة #راحة",
         "آيات من كتاب الله (سورة {s_name}) تتلى على مسامعكم بصوت {current_reciter}.\n\n#القرآن #quran #تلاوات_قصيرة",
-        "شارك المقطع لتنال الأجر 🤍 تلاوة خاشعة من {s_name} بصوت {current_reciter}.\n\n#قرآن #quran #اجر"
+        "شارك المقطع لتنال الأجر 🤍 تلاوة خاشعة من {s_name} بصوت {current_reciter}.\n\n#قرآن #quran #اجر",
+        "لحظة سكينة من سورة {s_name}، {ayah_range_str}، بصوت {current_reciter}.\n\n#قرآن_كريم #تلاوة #سكينة",
+        "شارك مع من تحب 🤍 آيات من {s_name} بصوت {current_reciter}.\n\n#quran #قرآن #shorts",
     ]
 
-    v_title = random.choice(title_templates).format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
-    v_desc = random.choice(desc_templates).format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
-    
+    # اختيار القالب بحيث لا يتكرر نفس القالب في آخر فيديوهين.
+    title_choices = [i for i in range(len(title_templates)) if i not in recent["title_templates"][-2:]] or list(range(len(title_templates)))
+    desc_choices = [i for i in range(len(desc_templates)) if i not in recent["desc_templates"][-2:]] or list(range(len(desc_templates)))
+    title_idx = random.choice(title_choices)
+    desc_idx = random.choice(desc_choices)
+
+    v_title = title_templates[title_idx].format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
+    v_desc = desc_templates[desc_idx].format(s_name=s_name, ayah_range_str=ayah_range_str, current_reciter=current_reciter)
+
     body = {'snippet': {'title': v_title, 'description': v_desc, 'categoryId': '22'}, 'status': {'privacyStatus': 'public'}}
     upload_response = youtube.videos().insert(
         part="snippet,status",
@@ -389,9 +532,14 @@ def build_shorts_video(youtube):
         "video_id": video_id,
         "url": f"https://youtu.be/{video_id}",
         "title": v_title,
+        "surah_id": s_id,
+        "title_template": title_idx,
+        "desc_template": desc_idx,
+        "bg_query": query,
     }
     print(f"✅ تم التحقق من الرفع العام: {record['url']} (المدة: {dur:.1f} ثانية)")
     return record
+
 
 if __name__ == "__main__":
     if daily_upload_limit_reached():
@@ -406,4 +554,3 @@ if __name__ == "__main__":
     except Exception as e:
         print("فشل التشغيل:", e)
         sys.exit(1)
-    
