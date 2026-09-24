@@ -19,6 +19,10 @@ on:
         description: 'رندر بدون رفع (الملفات تظهر كـ artifact)'
         type: boolean
         default: false
+      thumb_video_id:
+        description: 'معرّف فيديو مرفوع لضبط صورة مصغرة له فقط (مع رقم السورة)'
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -65,11 +69,13 @@ jobs:
           INPUT_FORCE: ${{ github.event.inputs.force }}
           INPUT_SURAH: ${{ github.event.inputs.surah }}
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          INPUT_THUMB: ${{ github.event.inputs.thumb_video_id }}
         run: |
           ARGS=""
           if [[ "$INPUT_FORCE" == "true" ]]; then ARGS="$ARGS --force"; fi
           if [[ "$INPUT_DRY_RUN" == "true" ]]; then ARGS="$ARGS --dry-run"; fi
           if [[ "$INPUT_SURAH" =~ ^[0-9]+$ ]]; then ARGS="$ARGS --surah $INPUT_SURAH"; fi
+          if [[ "$INPUT_THUMB" =~ ^[A-Za-z0-9_-]{6,20}$ ]]; then ARGS="$ARGS --thumb-only $INPUT_THUMB"; fi
           python long_video.py $ARGS
 
       - name: Upload dry-run output
@@ -81,7 +87,7 @@ jobs:
           retention-days: 3
 
       - name: Save long video log
-        if: success() && github.event.inputs.dry_run != 'true'
+        if: always() && github.event.inputs.dry_run != 'true'
         run: |
           if git status --porcelain | grep -q 'long_log.json'; then
             git config user.name "github-actions[bot]"
