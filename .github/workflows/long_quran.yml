@@ -58,7 +58,7 @@ jobs:
       - name: Install Libraries
         run: |
           pip install --upgrade pip
-          pip install Pillow==9.5.0 requests google-api-python-client google-auth-oauthlib
+          pip install Pillow==9.5.0 numpy==1.26.4 requests google-api-python-client google-auth-oauthlib
 
       - name: Run long video bot
         env:
