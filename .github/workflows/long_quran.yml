@@ -1,0 +1,97 @@
+name: Quran Long Video
+
+on:
+  schedule:
+    # فحص يومي؛ long_video.py هو اللي بيقرر: ينشر كل يومين بس.
+    # 15:00 UTC = 17:00/18:00 بتوقيت القاهرة (بعيد عن ميعاد الشورتس الصباحي).
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'انشر الآن حتى لو لم يمض يومان'
+        type: boolean
+        default: false
+      surah:
+        description: 'رقم سورة معيّنة (اتركه فارغًا لاتباع الترتيب)'
+        type: string
+        default: ''
+      dry_run:
+        description: 'رندر بدون رفع (الملفات تظهر كـ artifact)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# group مختلف عن مسار الشورتس عشان ما يعطّلوش بعض
+concurrency:
+  group: long-quran-auto
+  cancel-in-progress: false
+
+jobs:
+  build-and-upload-long:
+    runs-on: ubuntu-latest
+    # حد GitHub الأقصى 360 دقيقة؛ نقفل قبله بشوية
+    timeout-minutes: 340
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: 'pip'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libraqm-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev
+
+      - name: Install Libraries
+        run: |
+          pip install --upgrade pip
+          pip install Pillow==9.5.0 requests google-api-python-client google-auth-oauthlib
+
+      - name: Run long video bot
+        env:
+          TOKEN_BASE64: ${{ secrets.TOKEN_BASE64 }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          IMAGE_PROVIDER: ${{ vars.IMAGE_PROVIDER || 'pollinations' }}
+          INPUT_FORCE: ${{ github.event.inputs.force }}
+          INPUT_SURAH: ${{ github.event.inputs.surah }}
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          ARGS=""
+          if [[ "$INPUT_FORCE" == "true" ]]; then ARGS="$ARGS --force"; fi
+          if [[ "$INPUT_DRY_RUN" == "true" ]]; then ARGS="$ARGS --dry-run"; fi
+          if [[ "$INPUT_SURAH" =~ ^[0-9]+$ ]]; then ARGS="$ARGS --surah $INPUT_SURAH"; fi
+          python long_video.py $ARGS
+
+      - name: Upload dry-run output
+        if: success() && github.event.inputs.dry_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: long-video-dry-run
+          path: long_output/
+          retention-days: 3
+
+      - name: Save long video log
+        if: success() && github.event.inputs.dry_run != 'true'
+        run: |
+          if git status --porcelain | grep -q 'long_log.json'; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add long_log.json
+            git commit -m "Update long video log [skip ci]"
+            for i in 1 2 3; do
+              git pull --rebase && git push && break
+              sleep 5
+            done
+          else
+            echo "No long log changes to commit"
+          fi
