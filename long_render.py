@@ -183,7 +183,8 @@ def make_thumbnail(img, name, reciter, dur_text, out_path):
     od = ImageDraw.Draw(overlay)
     od.rounded_rectangle((60, 60, THUMB_W - 60, THUMB_H - 60), radius=30, outline=GOLD + (220,), width=4)
     od.rounded_rectangle((270, 425, THUMB_W - 270, 535), radius=26, fill=(0, 0, 0, 150))
-    od.rounded_rectangle((90, 90, 90 + 250, 90 + 96), radius=22, fill=GOLD + (255,))
+    if dur_text:
+        od.rounded_rectangle((90, 90, 90 + 250, 90 + 96), radius=22, fill=GOLD + (255,))
     thumb = Image.alpha_composite(base, overlay)
     d = ImageDraw.Draw(thumb)
 
@@ -193,7 +194,8 @@ def make_thumbnail(img, name, reciter, dur_text, out_path):
     draw_ar(d, (THUMB_W / 2, 270), name, font(FONT_AR, size), GOLD, stroke=10)
     draw_ar(d, (THUMB_W / 2, 478), "تلاوة كاملة", font(FONT_AR, 88), "white", stroke=5)
     draw_ar(d, (THUMB_W / 2, 597), reciter, font(FONT_AR, 62), (240, 240, 240), stroke=4)
-    draw_ar(d, (215, 138), to_arabic_digits(dur_text), font(FONT_AR, 52), (20, 20, 20), stroke=0)
+    if dur_text:
+        draw_ar(d, (215, 138), to_arabic_digits(dur_text), font(FONT_AR, 52), (20, 20, 20), stroke=0)
 
     thumb = thumb.convert("RGB")
     quality = 92

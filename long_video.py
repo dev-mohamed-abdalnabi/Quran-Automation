@@ -383,7 +383,7 @@ def verify_uploaded_video(youtube, video_id):
         raise RuntimeError("فشلت معالجة الفيديو في YouTube.")
 
 
-def set_thumbnail(youtube, video_id, path):
+def set_thumbnail(youtube, video_id, path, strict=False):
     """فشل الصورة المصغرة مش بيلغي النشر (غالبًا القناة محتاجة توثيق)."""
     from googleapiclient.http import MediaFileUpload
 
@@ -393,6 +393,8 @@ def set_thumbnail(youtube, video_id, path):
         ).execute()
         print("   ✅ تم ضبط الصورة المصغرة")
     except Exception as exc:  # noqa: BLE001
+        if strict:
+            raise
         print(f"::warning title=الصورة المصغرة::تعذر ضبطها ({exc})")
 
 
@@ -461,9 +463,8 @@ def run(force=False, surah=None, dry_run=False):
         print("📡 [5/5] الرفع لليوتيوب...")
         youtube = youtube_authenticate()
         video_id = upload_video(youtube, video_path, title, description, tags)
-        verify_uploaded_video(youtube, video_id)
-        set_thumbnail(youtube, video_id, thumb_path)
 
+        # نسجّل فورًا بعد نجاح الرفع، قبل أي فحص، عشان أي خطأ بعده ما يعمل رفع مكرر.
         record = {
             "date": today.isoformat(),
             "uploaded_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -486,10 +487,39 @@ def run(force=False, surah=None, dry_run=False):
         log["recent_styles"] = (log["recent_styles"] + [plan["style"]])[-6:]
         log["recent_palettes"] = (log["recent_palettes"] + [plan["palette"]])[-6:]
         save_log(log)
+
+        # الفحص اختياري: التوكن الحالي غالبًا صلاحيته رفع فقط (مش قراءة).
+        try:
+            verify_uploaded_video(youtube, video_id)
+        except Exception as exc:  # noqa: BLE001
+            print(f"::warning title=فحص الفيديو::تخطيت الفحص بعد الرفع ({exc})")
+        set_thumbnail(youtube, video_id, thumb_path)
         print(f"✅ تم النشر: {record['url']} ({(time.time() - started) / 60:.1f} دقيقة)")
         return 0
     finally:
         shutil.rmtree(WORK_DIR, ignore_errors=True)
+
+
+def thumb_only(video_id, surah_id):
+    """يعمل صورة مصغرة جديدة لفيديو مرفوع بالفعل ويضبطها عليه (بدون رندر أو رفع)."""
+    log = load_log()
+    rng = random.Random()
+    data = api_get(f"{API}/surah/{surah_id}")
+    name = clean_name(data["name"])
+    plan = prompts.plan_video(rng, 1, log["used_prompt_ids"], log["recent_styles"], log["recent_palettes"])
+    print(f"🖼️ توليد الصورة المصغرة لـ{name}...")
+    img, source = long_images.generate_image(
+        plan["thumb"]["prompt"], rng.randint(1, 10**9), render.W, render.H, plan["palette"]
+    )
+    print(f"   المصدر: {source}")
+    os.makedirs(WORK_DIR, exist_ok=True)
+    try:
+        path = os.path.join(WORK_DIR, "thumbnail.jpg")
+        render.make_thumbnail(img, name, RECITER_NAMES["ar.alafasy"], None, path)
+        set_thumbnail(youtube_authenticate(), video_id, path, strict=True)
+    finally:
+        shutil.rmtree(WORK_DIR, ignore_errors=True)
+    return 0
 
 
 def main():
@@ -497,8 +527,13 @@ def main():
     parser.add_argument("--force", action="store_true", help="تجاهل شرط اليومين")
     parser.add_argument("--surah", type=int, help="رقم سورة معيّنة")
     parser.add_argument("--dry-run", action="store_true", help="رندر بدون رفع")
+    parser.add_argument("--thumb-only", metavar="VIDEO_ID", help="صورة مصغرة لفيديو مرفوع (مع --surah)")
     args = parser.parse_args()
     try:
+        if args.thumb_only:
+            if not args.surah:
+                parser.error("--thumb-only محتاج --surah")
+            sys.exit(thumb_only(args.thumb_only, args.surah))
         sys.exit(run(force=args.force or bool(args.surah), surah=args.surah, dry_run=args.dry_run))
     except Exception as exc:  # noqa: BLE001
         print("فشل التشغيل:", exc)

@@ -76,6 +76,13 @@ class RenderTests(unittest.TestCase):
         fit = render.fit_text(ar, en, 1460, 620)
         self.assertLessEqual(fit["total"], 620)
 
+    def test_thumbnail_without_duration(self):
+        import long_images
+        img = long_images.gradient_image(0, 1, render.W, render.H)
+        path = os.path.join(tempfile.mkdtemp(), "t.jpg")
+        render.make_thumbnail(img, "سورة الروم", "مشاري العفاسي", None, path)
+        self.assertLess(os.path.getsize(path), 2_000_000)
+
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg غير موجود")
     def test_end_to_end_offline(self):
         work = tempfile.mkdtemp()
