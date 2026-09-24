@@ -1,0 +1,33 @@
+{
+  "next_surah": 2,
+  "uploads": [
+    {
+      "date": "2026-09-24",
+      "uploaded_at": "2026-09-24T19:46:40.674346Z",
+      "video_id": "TfbnFtYUDhE",
+      "url": "https://youtu.be/TfbnFtYUDhE",
+      "title": "سورة طه كاملة مكتوبة | بصوت مشاري العفاسي | تلاوة خاشعة ✨",
+      "surah_id": 20,
+      "reciter": "ar.alafasy",
+      "title_template": 4,
+      "style": 9,
+      "palette": 4,
+      "duration_sec": 1650
+    }
+  ],
+  "used_prompt_ids": [
+    22562,
+    22682,
+    22579,
+    22587,
+    22713,
+    22709,
+    22601
+  ],
+  "recent_styles": [
+    9
+  ],
+  "recent_palettes": [
+    4
+  ]
+}
