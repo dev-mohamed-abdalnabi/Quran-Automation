@@ -98,7 +98,7 @@ class RenderTests(unittest.TestCase):
                 for i in range(4)
             ]
             with mock.patch.object(lv, "download", fake_download):
-                wav, durations = lv.build_audio(ayahs, work)
+                wav, durations = lv.build_audio_ayah(ayahs, work)
             starts, total = lv.build_timeline(durations)
             self.assertAlmostEqual(total, lv.INTRO_SEC + sum(durations), places=3)
 
@@ -125,6 +125,92 @@ class RenderTests(unittest.TestCase):
             self.assertLess(os.path.getsize(thumb), 2_000_000)
         finally:
             shutil.rmtree(work, ignore_errors=True)
+
+
+def _make_mp3(path, seconds):
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"sine=frequency=330:duration={seconds}", path],
+        check=True,
+    )
+
+
+class FakeResp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg غير موجود")
+class AudioTests(unittest.TestCase):
+    def setUp(self):
+        self.work = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.work, ignore_errors=True)
+
+    def test_ayah_mode_has_no_silent_gaps(self):
+        import wave
+        import numpy as np
+
+        def fake_download(url, path, retries=4):
+            _make_mp3(path, 1.5)
+
+        ayahs = [{"number": i + 1, "audio": "x"} for i in range(5)]
+        with mock.patch.object(lv, "download", fake_download):
+            wav, durations = lv.build_audio_ayah(ayahs, self.work)
+        with wave.open(wav, "rb") as w:
+            total = w.getnframes() / w.getframerate()
+            data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+        self.assertAlmostEqual(lv.INTRO_SEC + sum(durations), total, places=3)
+        body = data[int(lv.INTRO_SEC * lv.SAMPLE_RATE):]
+        zeros = (body == 0).astype(np.int8)
+        longest = 0
+        run = 0
+        for z in zeros:
+            run = run + 1 if z else 0
+            longest = max(longest, run)
+        self.assertLess(longest / lv.SAMPLE_RATE, 0.01)  # مفيش صمت رقمي بين الآيات
+
+    def _patch_network(self, stamps, fail=False):
+        def fake_get(url, **kwargs):
+            if fail:
+                raise RuntimeError("no network")
+            if url.endswith("/resources/chapter_reciters"):
+                return FakeResp({"reciters": [
+                    {"id": 6, "name": "Mahmoud Khalil Al-Husary", "style": {"name": "Muallim"}},
+                    {"id": 7, "name": "Mishari Rashid al-`Afasy", "style": {"name": "Murattal"}},
+                ]})
+            return FakeResp({"audio_file": {"audio_url": "https://x/1.mp3", "timestamps": stamps}})
+
+        def fake_download(url, path, retries=4):
+            _make_mp3(path, 10)
+
+        return mock.patch.object(lv.requests, "get", fake_get), mock.patch.object(lv, "download", fake_download)
+
+    def test_continuous_mode(self):
+        stamps = [{"verse_key": f"2:{i + 1}", "timestamp_from": i * 2500, "timestamp_to": (i + 1) * 2500} for i in range(4)]
+        data = {"id": 2, "ayahs": [{"number": i + 1, "audio": "x"} for i in range(4)]}
+        p1, p2 = self._patch_network(stamps)
+        with p1, p2:
+            wav, durations, mode = lv.build_audio(data, "ar.alafasy", self.work)
+        self.assertEqual(mode, "continuous")
+        self.assertEqual(len(durations), 4)
+        self.assertAlmostEqual(lv.INTRO_SEC + sum(durations), lv._wav_seconds(wav), places=3)
+        self.assertAlmostEqual(durations[0], 2.5, delta=0.01)
+
+    def test_falls_back_when_timestamps_missing_or_network_fails(self):
+        data = {"id": 2, "ayahs": [{"number": i + 1, "audio": "x"} for i in range(3)]}
+        for fail, stamps in ((False, []), (True, [])):
+            p1, p2 = self._patch_network(stamps, fail=fail)
+            with p1, p2, mock.patch.object(lv, "download", lambda url, path, retries=4: _make_mp3(path, 1.5)):
+                wav, durations, mode = lv.build_audio(data, "ar.alafasy", self.work)
+            self.assertEqual(mode, "ayah")
+            self.assertEqual(len(durations), 3)
 
 
 if __name__ == "__main__":

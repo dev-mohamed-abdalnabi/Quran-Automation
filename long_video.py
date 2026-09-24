@@ -36,11 +36,18 @@ IMAGE_EVERY_SEC = int(os.environ.get("LONG_IMAGE_EVERY_SEC", "300"))
 MAX_IMAGES = 30
 CHAPTER_EVERY_SEC = 600
 INTRO_SEC = 3.5
-GAP_SEC = 0.2
+XFADE_SEC = 0.12   # تداخل ناعم بين الآيات في المسار الاحتياطي
 SAMPLE_RATE = 44100
 MAX_LOG_PROMPTS = 6000
 
 API = "https://api.alquran.cloud/v1"
+QURAN_COM = "https://api.quran.com/api/v4"
+# كلمات تعريف القارئ في قائمة chapter_reciters (مقارنة بحروف صغيرة)
+EDITION_KEYWORDS = {
+    "ar.alafasy": ("afasy",),
+    "ar.husary": ("husary",),
+    "ar.minshawi": ("minshawi",),
+}
 RECITERS = ["ar.alafasy", "ar.husary", "ar.minshawi"]
 RECITER_NAMES = {
     "ar.alafasy": "مشاري العفاسي",
@@ -248,26 +255,143 @@ def decode_pcm(path):
     ).stdout
 
 
-def build_audio(ayahs, work_dir):
-    """بيجمّع كل الآيات في WAV واحد. المدة محسوبة من عدد العيّنات الفعلي، فمفيش انحراف في التوقيت."""
+def _wav_seconds(path):
+    with wave.open(path, "rb") as w:
+        return w.getnframes() / w.getframerate()
+
+
+def find_chapter_reciter(edition):
+    """يدوّر على معرّف القارئ في Quran.com بالاسم (مش أرقام ثابتة)، ويفضّل المرتّل."""
+    res = requests.get(f"{QURAN_COM}/resources/chapter_reciters", timeout=30)
+    res.raise_for_status()
+    words = EDITION_KEYWORDS[edition]
+    matches = [r for r in res.json().get("reciters", []) if any(w in str(r.get("name", "")).lower() for w in words)]
+
+    def style(r):
+        st = r.get("style")
+        return str(st.get("name") if isinstance(st, dict) else st or "").lower()
+
+    murattal = [r for r in matches if style(r) == "murattal"]
+    chosen = murattal or matches
+    return chosen[0]["id"] if chosen else None
+
+
+def fetch_continuous(s_id, edition, n_ayahs):
+    """بيرجّع (رابط ملف السورة الكامل، بدايات الآيات بالمللي ثانية) أو None لو مش متاح/مش موثوق."""
+    reciter_id = find_chapter_reciter(edition)
+    if reciter_id is None:
+        return None
+    res = requests.get(
+        f"{QURAN_COM}/chapter_recitations/{reciter_id}/{s_id}", params={"segments": "true"}, timeout=30
+    )
+    res.raise_for_status()
+    audio_file = res.json()["audio_file"]
+    stamps = audio_file.get("timestamps") or []
+    if len(stamps) != n_ayahs:
+        return None
+    starts_ms = []
+    for i, stamp in enumerate(stamps, 1):
+        if stamp.get("verse_key") != f"{s_id}:{i}":
+            return None
+        starts_ms.append(int(stamp["timestamp_from"]))
+    if any(b <= a for a, b in zip(starts_ms, starts_ms[1:])):
+        return None
+    url = audio_file["audio_url"]
+    if url.startswith("//"):
+        url = "https:" + url
+    elif not url.startswith("http"):
+        url = "https://audio.qurancdn.com/" + url.lstrip("/")
+    return url, starts_ms
+
+
+def build_audio_continuous(s_id, edition, n_ayahs, work_dir):
+    """تلاوة السورة كملف واحد متصل (من غير أي قطع)، والتوقيتات من Quran.com."""
+    info = fetch_continuous(s_id, edition, n_ayahs)
+    if not info:
+        return None
+    url, starts_ms = info
+    src = os.path.join(work_dir, "full_surah.mp3")
+    wav_path = os.path.join(work_dir, "audio.wav")
+    download(url, src)
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", src, "-ac", "1", "-ar", str(SAMPLE_RATE),
+         "-af", f"adelay={int(INTRO_SEC * 1000)}:all=1", wav_path],
+        check=True,
+    )
+    os.remove(src)
+    total = _wav_seconds(wav_path)
+    if starts_ms[-1] / 1000 >= total - INTRO_SEC - 0.5:
+        print("⚠️ توقيتات Quran.com مش متطابقة مع الملف، هتجاهلها.")
+        return None
+    starts = [INTRO_SEC] + [INTRO_SEC + ms / 1000 for ms in starts_ms[1:]]
+    durations = [b - a for a, b in zip(starts, starts[1:])] + [total - starts[-1]]
+    return wav_path, durations
+
+
+def build_audio_ayah(ayahs, work_dir):
+    """المسار الاحتياطي: آية-آية، بدمج ناعم (crossfade) وبدون فراغات صامتة بين الآيات."""
+    import numpy as np
+
     wav_path = os.path.join(work_dir, "audio.wav")
     tmp = os.path.join(work_dir, "ayah.mp3")
-    gap = b"\x00\x00" * int(GAP_SEC * SAMPLE_RATE)
-    durations = []
+    n_x = int(XFADE_SEC * SAMPLE_RATE)
+    pos = int(INTRO_SEC * SAMPLE_RATE)
+    bounds, tail = [], np.zeros(0, dtype=np.int16)
+
     with wave.open(wav_path, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(SAMPLE_RATE)
-        w.writeframes(b"\x00\x00" * int(INTRO_SEC * SAMPLE_RATE))
+        w.writeframes(b"\x00\x00" * pos)
         for i, ayah in enumerate(ayahs, 1):
             download(ayah["audio"], tmp)
-            pcm = decode_pcm(tmp) + gap
-            w.writeframes(pcm)
-            durations.append(len(pcm) / 2 / SAMPLE_RATE)
+            cur = np.frombuffer(decode_pcm(tmp), dtype=np.int16)
             os.remove(tmp)
+
+            k = min(n_x, len(tail), len(cur) // 2)
+            if k > 0:
+                t = np.linspace(0.0, 1.0, k, dtype=np.float32)
+                blend = tail[-k:].astype(np.float32) * np.cos(t * np.pi / 2) + cur[:k].astype(np.float32) * np.sin(t * np.pi / 2)
+                w.writeframes(tail[:-k].tobytes())
+                pos += len(tail) - k
+                bounds.append(pos + k // 2)  # بداية الآية = منتصف منطقة الدمج
+                w.writeframes(np.clip(blend, -32768, 32767).astype(np.int16).tobytes())
+                pos += k
+                cur = cur[k:]
+            else:
+                w.writeframes(tail.tobytes())
+                pos += len(tail)
+                bounds.append(pos)
+
+            keep = min(n_x, len(cur))
+            w.writeframes(cur[: len(cur) - keep].tobytes())
+            pos += len(cur) - keep
+            tail = cur[len(cur) - keep:]
             if i % 25 == 0 or i == len(ayahs):
                 print(f"   🔊 الصوت: {i}/{len(ayahs)} آية")
+        w.writeframes(tail.tobytes())
+        pos += len(tail)
+
+    durations = [(b - a) / SAMPLE_RATE for a, b in zip(bounds, bounds[1:])] + [(pos - bounds[-1]) / SAMPLE_RATE]
     return wav_path, durations
+
+
+def build_audio(data, edition, work_dir):
+    """يفضّل الملف المتصل للسورة؛ ولو مش متاح ينزل للمسار الاحتياطي. بيرجّع (wav, durations, mode)."""
+    mode = os.environ.get("LONG_AUDIO_MODE", "auto").lower()
+    if mode in ("auto", "continuous"):
+        try:
+            result = build_audio_continuous(data["id"], edition, len(data["ayahs"]), work_dir)
+            if result:
+                return result[0], result[1], "continuous"
+            print("⚠️ التلاوة المتصلة مش متاحة لهذا القارئ/السورة.")
+        except Exception as exc:  # noqa: BLE001
+            print(f"⚠️ فشل جلب التلاوة المتصلة: {exc}")
+        if mode == "continuous":
+            raise RuntimeError("LONG_AUDIO_MODE=continuous لكن التلاوة المتصلة غير متاحة.")
+        print("   هستخدم آية-آية بدمج ناعم.")
+    wav_path, durations = build_audio_ayah(data["ayahs"], work_dir)
+    return wav_path, durations, "ayah"
 
 
 # ================== الصور والإطارات ==================
@@ -421,9 +545,9 @@ def run(force=False, surah=None, dry_run=False):
         name = clean_name(data["name"])
 
         print(f"🔊 [2/5] تجميع الصوت ({len(data['ayahs'])} آية) بصوت {reciter}...")
-        wav_path, durations = build_audio(data["ayahs"], WORK_DIR)
+        wav_path, durations, audio_mode = build_audio(data, edition, WORK_DIR)
         starts, total = build_timeline(durations)
-        print(f"   المدة الكلية: {fmt_ts(total)}")
+        print(f"   نوع الصوت: {audio_mode} | المدة الكلية: {fmt_ts(total)}")
 
         n_images = image_count(total)
         plan = prompts.plan_video(
@@ -477,6 +601,7 @@ def run(force=False, surah=None, dry_run=False):
             "style": plan["style"],
             "palette": plan["palette"],
             "duration_sec": round(total),
+            "audio_mode": audio_mode,
         }
         log["uploads"] = (log["uploads"] + [record])[-60:]
         if surah is None:  # رفع سورة يدويًا ما بيحرّكش الدور
