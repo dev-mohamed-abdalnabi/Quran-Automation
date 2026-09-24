@@ -13,6 +13,20 @@
       "style": 9,
       "palette": 4,
       "duration_sec": 1650
+    },
+    {
+      "date": "2026-09-24",
+      "uploaded_at": "2026-09-24T20:05:56.813548Z",
+      "video_id": "KUPraRwLbhA",
+      "url": "https://youtu.be/KUPraRwLbhA",
+      "title": "قرآن كريم | سورة الحجر كاملة بصوت محمد صديق المنشاوي 🤍",
+      "surah_id": 15,
+      "reciter": "ar.minshawi",
+      "title_template": 5,
+      "style": 1,
+      "palette": 2,
+      "duration_sec": 847,
+      "audio_mode": "ayah"
     }
   ],
   "used_prompt_ids": [
@@ -22,12 +36,18 @@
     22587,
     22713,
     22709,
-    22601
+    22601,
+    3092,
+    2988,
+    2883,
+    2919
   ],
   "recent_styles": [
-    9
+    9,
+    1
   ],
   "recent_palettes": [
-    4
+    4,
+    2
   ]
 }
