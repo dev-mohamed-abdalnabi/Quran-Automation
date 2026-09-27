@@ -1,5 +1,5 @@
 {
-  "next_surah": 3,
+  "next_surah": 4,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -13,6 +13,20 @@
       "style": 8,
       "palette": 9,
       "duration_sec": 8181,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-09-27",
+      "uploaded_at": "2026-09-27T19:09:59.323986Z",
+      "video_id": "iKYDGmwowM0",
+      "url": "https://youtu.be/iKYDGmwowM0",
+      "title": "قرآن كريم | سورة ال عمران كاملة بصوت مشاري العفاسي 🤍",
+      "surah_id": 3,
+      "reciter": "ar.alafasy",
+      "title_template": 5,
+      "style": 2,
+      "palette": 5,
+      "duration_sec": 4761,
       "audio_mode": "ayah"
     }
   ],
@@ -44,12 +58,31 @@
     21565,
     21360,
     21390,
-    21494
+    21494,
+    6143,
+    6211,
+    6225,
+    6202,
+    6189,
+    6219,
+    6088,
+    6133,
+    6160,
+    6072,
+    6027,
+    6175,
+    6232,
+    6123,
+    6023,
+    6048,
+    6007
   ],
   "recent_styles": [
-    8
+    8,
+    2
   ],
   "recent_palettes": [
-    9
+    9,
+    5
   ]
 }
