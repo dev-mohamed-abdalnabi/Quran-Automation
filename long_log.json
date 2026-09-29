@@ -1,5 +1,5 @@
 {
-  "next_surah": 4,
+  "next_surah": 5,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -27,6 +27,20 @@
       "style": 2,
       "palette": 5,
       "duration_sec": 4761,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-09-29",
+      "uploaded_at": "2026-09-29T19:56:43.334945Z",
+      "video_id": "A7CBOB5ZLds",
+      "url": "https://youtu.be/A7CBOB5ZLds",
+      "title": "سورة النساء كاملة بصوت محمد صديق المنشاوي | تلاوة هادئة تريح القلب 🤍",
+      "surah_id": 4,
+      "reciter": "ar.minshawi",
+      "title_template": 0,
+      "style": 4,
+      "palette": 1,
+      "duration_sec": 5147,
       "audio_mode": "ayah"
     }
   ],
@@ -75,14 +89,34 @@
     6123,
     6023,
     6048,
-    6007
+    6007,
+    9840,
+    9985,
+    9926,
+    9859,
+    9868,
+    9975,
+    9850,
+    10067,
+    9913,
+    10038,
+    9946,
+    10019,
+    10013,
+    9904,
+    9883,
+    9902,
+    9872,
+    10077
   ],
   "recent_styles": [
     8,
-    2
+    2,
+    4
   ],
   "recent_palettes": [
     9,
-    5
+    5,
+    1
   ]
 }
