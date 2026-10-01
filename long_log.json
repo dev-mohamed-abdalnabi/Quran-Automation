@@ -1,5 +1,5 @@
 {
-  "next_surah": 5,
+  "next_surah": 6,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -41,6 +41,20 @@
       "style": 4,
       "palette": 1,
       "duration_sec": 5147,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-10-01",
+      "uploaded_at": "2026-10-01T20:10:38.293899Z",
+      "video_id": "JuunGSpwuew",
+      "url": "https://youtu.be/JuunGSpwuew",
+      "title": "سورة المائـدة كاملة للسكينة والراحة النفسية | محمود خليل الحصري",
+      "surah_id": 5,
+      "reciter": "ar.husary",
+      "title_template": 6,
+      "style": 7,
+      "palette": 8,
+      "duration_sec": 5538,
       "audio_mode": "ayah"
     }
   ],
@@ -107,16 +121,37 @@
     9883,
     9902,
     9872,
-    10077
+    10077,
+    18901,
+    18780,
+    18913,
+    18820,
+    18873,
+    18784,
+    18803,
+    18847,
+    18884,
+    18728,
+    18813,
+    18870,
+    18832,
+    18955,
+    18762,
+    18750,
+    18936,
+    18726,
+    18736
   ],
   "recent_styles": [
     8,
     2,
-    4
+    4,
+    7
   ],
   "recent_palettes": [
     9,
     5,
-    1
+    1,
+    8
   ]
 }
