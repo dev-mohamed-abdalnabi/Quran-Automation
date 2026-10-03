@@ -1,5 +1,5 @@
 {
-  "next_surah": 6,
+  "next_surah": 7,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -55,6 +55,20 @@
       "style": 7,
       "palette": 8,
       "duration_sec": 5538,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-10-03",
+      "uploaded_at": "2026-10-03T18:37:25.499223Z",
+      "video_id": "z3OCDd9h45c",
+      "url": "https://youtu.be/z3OCDd9h45c",
+      "title": "سورة الأنعام كاملة مكتوبة | بصوت محمد صديق المنشاوي | تلاوة خاشعة ✨",
+      "surah_id": 6,
+      "reciter": "ar.minshawi",
+      "title_template": 4,
+      "style": 3,
+      "palette": 9,
+      "duration_sec": 3965,
       "audio_mode": "ayah"
     }
   ],
@@ -140,18 +154,34 @@
     18750,
     18936,
     18726,
-    18736
+    18736,
+    9362,
+    9493,
+    9438,
+    9449,
+    9501,
+    9583,
+    9515,
+    9447,
+    9537,
+    9371,
+    9420,
+    9393,
+    9413,
+    9529
   ],
   "recent_styles": [
     8,
     2,
     4,
-    7
+    7,
+    3
   ],
   "recent_palettes": [
     9,
     5,
     1,
-    8
+    8,
+    9
   ]
 }
