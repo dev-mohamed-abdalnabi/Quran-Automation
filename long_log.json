@@ -1,5 +1,5 @@
 {
-  "next_surah": 7,
+  "next_surah": 8,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -69,6 +69,20 @@
       "style": 3,
       "palette": 9,
       "duration_sec": 3965,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-10-06",
+      "uploaded_at": "2026-10-05T21:56:26.057839Z",
+      "video_id": "jRu2bIA78no",
+      "url": "https://youtu.be/jRu2bIA78no",
+      "title": "قرآن كريم | سورة الأعراف كاملة بصوت مشاري العفاسي 🤍",
+      "surah_id": 7,
+      "reciter": "ar.alafasy",
+      "title_template": 5,
+      "style": 5,
+      "palette": 6,
+      "duration_sec": 4761,
       "audio_mode": "ayah"
     }
   ],
@@ -168,20 +182,39 @@
     9420,
     9393,
     9413,
-    9529
+    9529,
+    13584,
+    13551,
+    13562,
+    13622,
+    13526,
+    13485,
+    13678,
+    13577,
+    13472,
+    13660,
+    13605,
+    13470,
+    13455,
+    13511,
+    13553,
+    13532,
+    13488
   ],
   "recent_styles": [
     8,
     2,
     4,
     7,
-    3
+    3,
+    5
   ],
   "recent_palettes": [
     9,
     5,
     1,
     8,
-    9
+    9,
+    6
   ]
 }
