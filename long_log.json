@@ -1,5 +1,5 @@
 {
-  "next_surah": 8,
+  "next_surah": 9,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -83,6 +83,20 @@
       "style": 5,
       "palette": 6,
       "duration_sec": 4761,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-10-08",
+      "uploaded_at": "2026-10-08T20:32:25.061851Z",
+      "video_id": "Kik15HUEqic",
+      "url": "https://youtu.be/Kik15HUEqic",
+      "title": "سورة الأنفال كاملة (41 دقيقة) بصوت محمود خليل الحصري 🎧 تلاوة خاشعة",
+      "surah_id": 8,
+      "reciter": "ar.husary",
+      "title_template": 1,
+      "style": 0,
+      "palette": 1,
+      "duration_sec": 2484,
       "audio_mode": "ayah"
     }
   ],
@@ -199,22 +213,31 @@
     13511,
     13553,
     13532,
-    13488
+    13488,
+    472,
+    377,
+    354,
+    455,
+    327,
+    392,
+    441,
+    390,
+    463
   ],
   "recent_styles": [
-    8,
     2,
     4,
     7,
     3,
-    5
+    5,
+    0
   ],
   "recent_palettes": [
-    9,
     5,
     1,
     8,
     9,
-    6
+    6,
+    1
   ]
 }
