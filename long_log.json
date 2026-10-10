@@ -1,5 +1,5 @@
 {
-  "next_surah": 9,
+  "next_surah": 10,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -97,6 +97,20 @@
       "style": 0,
       "palette": 1,
       "duration_sec": 2484,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-10-10",
+      "uploaded_at": "2026-10-10T19:11:59.565570Z",
+      "video_id": "48awAnqb1UM",
+      "url": "https://youtu.be/48awAnqb1UM",
+      "title": "سورة التوبة كاملة مكتوبة | بصوت محمد صديق المنشاوي | تلاوة خاشعة ✨",
+      "surah_id": 9,
+      "reciter": "ar.minshawi",
+      "title_template": 4,
+      "style": 4,
+      "palette": 8,
+      "duration_sec": 3227,
       "audio_mode": "ayah"
     }
   ],
@@ -222,22 +236,34 @@
     392,
     441,
     390,
-    463
+    463,
+    11551,
+    11566,
+    11540,
+    11754,
+    11582,
+    11630,
+    11634,
+    11732,
+    11688,
+    11523,
+    11607,
+    11698
   ],
   "recent_styles": [
-    2,
     4,
     7,
     3,
     5,
-    0
+    0,
+    4
   ],
   "recent_palettes": [
-    5,
     1,
     8,
     9,
     6,
-    1
+    1,
+    8
   ]
 }
