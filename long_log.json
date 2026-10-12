@@ -1,5 +1,5 @@
 {
-  "next_surah": 10,
+  "next_surah": 11,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -111,6 +111,20 @@
       "style": 4,
       "palette": 8,
       "duration_sec": 3227,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-10-13",
+      "uploaded_at": "2026-10-12T22:25:49.509334Z",
+      "video_id": "kNTZIazPvGo",
+      "url": "https://youtu.be/kNTZIazPvGo",
+      "title": "تلاوة سورة يونس كاملة | مشاري العفاسي | مع الآيات مكتوبة والترجمة",
+      "surah_id": 10,
+      "reciter": "ar.alafasy",
+      "title_template": 3,
+      "style": 6,
+      "palette": 5,
+      "duration_sec": 2674,
       "audio_mode": "ayah"
     }
   ],
@@ -248,22 +262,32 @@
     11688,
     11523,
     11607,
-    11698
+    11698,
+    15804,
+    15647,
+    15685,
+    15791,
+    15781,
+    15701,
+    15758,
+    15724,
+    15827,
+    15651
   ],
   "recent_styles": [
-    4,
     7,
     3,
     5,
     0,
-    4
+    4,
+    6
   ],
   "recent_palettes": [
-    1,
     8,
     9,
     6,
     1,
-    8
+    8,
+    5
   ]
 }
