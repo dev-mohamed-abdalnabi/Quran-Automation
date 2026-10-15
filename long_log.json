@@ -1,5 +1,5 @@
 {
-  "next_surah": 11,
+  "next_surah": 12,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -125,6 +125,20 @@
       "style": 6,
       "palette": 5,
       "duration_sec": 2674,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-10-15",
+      "uploaded_at": "2026-10-15T19:00:04.515403Z",
+      "video_id": "6KB958tCBGo",
+      "url": "https://youtu.be/6KB958tCBGo",
+      "title": "سورة هود كاملة للسكينة والراحة النفسية | محمود خليل الحصري",
+      "surah_id": 11,
+      "reciter": "ar.husary",
+      "title_template": 6,
+      "style": 3,
+      "palette": 3,
+      "duration_sec": 3275,
       "audio_mode": "ayah"
     }
   ],
@@ -272,22 +286,34 @@
     15758,
     15724,
     15827,
-    15651
+    15651,
+    7942,
+    7945,
+    8155,
+    8063,
+    8123,
+    8030,
+    8105,
+    7935,
+    8147,
+    7956,
+    7969,
+    8078
   ],
   "recent_styles": [
-    7,
     3,
     5,
     0,
     4,
-    6
+    6,
+    3
   ],
   "recent_palettes": [
-    8,
     9,
     6,
     1,
     8,
-    5
+    5,
+    3
   ]
 }
