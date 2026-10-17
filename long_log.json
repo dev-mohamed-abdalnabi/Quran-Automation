@@ -1,5 +1,5 @@
 {
-  "next_surah": 12,
+  "next_surah": 13,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -139,6 +139,20 @@
       "style": 3,
       "palette": 3,
       "duration_sec": 3275,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-10-17",
+      "uploaded_at": "2026-10-17T17:44:47.167988Z",
+      "video_id": "fA2KUUYuMvg",
+      "url": "https://youtu.be/fA2KUUYuMvg",
+      "title": "سورة يوسف كاملة مكتوبة | بصوت مشاري العفاسي | تلاوة خاشعة ✨",
+      "surah_id": 12,
+      "reciter": "ar.alafasy",
+      "title_template": 4,
+      "style": 2,
+      "palette": 2,
+      "duration_sec": 2500,
       "audio_mode": "ayah"
     }
   ],
@@ -298,22 +312,31 @@
     8147,
     7956,
     7969,
-    8078
+    8078,
+    5382,
+    5440,
+    5395,
+    5428,
+    5374,
+    5462,
+    5322,
+    5412,
+    5401
   ],
   "recent_styles": [
-    3,
     5,
     0,
     4,
     6,
-    3
+    3,
+    2
   ],
   "recent_palettes": [
-    9,
     6,
     1,
     8,
     5,
-    3
+    3,
+    2
   ]
 }
