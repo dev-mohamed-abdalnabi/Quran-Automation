@@ -1,5 +1,5 @@
 {
-  "next_surah": 13,
+  "next_surah": 14,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -153,6 +153,20 @@
       "style": 2,
       "palette": 2,
       "duration_sec": 2500,
+      "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-10-19",
+      "uploaded_at": "2026-10-19T20:26:52.543806Z",
+      "video_id": "dV3v4b1FtYM",
+      "url": "https://youtu.be/dV3v4b1FtYM",
+      "title": "تلاوة سورة الرعد كاملة | محمود خليل الحصري | مع الآيات مكتوبة والترجمة",
+      "surah_id": 13,
+      "reciter": "ar.husary",
+      "title_template": 3,
+      "style": 5,
+      "palette": 1,
+      "duration_sec": 1615,
       "audio_mode": "ayah"
     }
   ],
@@ -321,22 +335,28 @@
     5462,
     5322,
     5412,
-    5401
+    5401,
+    12343,
+    12327,
+    12391,
+    12441,
+    12381,
+    12274
   ],
   "recent_styles": [
-    5,
     0,
     4,
     6,
     3,
-    2
+    2,
+    5
   ],
   "recent_palettes": [
-    6,
     1,
     8,
     5,
     3,
-    2
+    2,
+    1
   ]
 }
