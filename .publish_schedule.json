@@ -1,7 +1,7 @@
 {
-  "date": "2026-10-19",
-  "target_minute": 900,
-  "target_cairo": "15:00",
-  "attempt_count": 1,
-  "scheduled_attempted": true
+  "date": "2026-10-20",
+  "target_minute": 689,
+  "target_cairo": "11:29",
+  "attempt_count": 0,
+  "scheduled_attempted": false
 }
