@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   build-and-upload-long:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # حد GitHub الأقصى 360 دقيقة؛ نقفل قبله بشوية
     timeout-minutes: 340
 
