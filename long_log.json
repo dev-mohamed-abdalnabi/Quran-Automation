@@ -1,5 +1,5 @@
 {
-  "next_surah": 14,
+  "next_surah": 15,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -168,6 +168,20 @@
       "palette": 1,
       "duration_sec": 1615,
       "audio_mode": "ayah"
+    },
+    {
+      "date": "2026-10-29",
+      "uploaded_at": "2026-10-29T20:02:12.018662Z",
+      "video_id": "_WbFm-loOeU",
+      "url": "https://youtu.be/_WbFm-loOeU",
+      "title": "قرآن كريم | سورة إبراهيم كاملة بصوت محمد صديق المنشاوي 🤍",
+      "surah_id": 14,
+      "reciter": "ar.minshawi",
+      "title_template": 5,
+      "style": 6,
+      "palette": 5,
+      "duration_sec": 1114,
+      "audio_mode": "continuous"
     }
   ],
   "used_prompt_ids": [
@@ -341,22 +355,27 @@
     12391,
     12441,
     12381,
-    12274
+    12274,
+    15710,
+    15824,
+    15720,
+    15773,
+    15787
   ],
   "recent_styles": [
-    0,
     4,
     6,
     3,
     2,
-    5
+    5,
+    6
   ],
   "recent_palettes": [
-    1,
     8,
     5,
     3,
     2,
-    1
+    1,
+    5
   ]
 }
