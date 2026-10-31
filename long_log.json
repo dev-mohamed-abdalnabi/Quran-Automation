@@ -1,5 +1,5 @@
 {
-  "next_surah": 15,
+  "next_surah": 16,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -182,6 +182,20 @@
       "palette": 5,
       "duration_sec": 1114,
       "audio_mode": "continuous"
+    },
+    {
+      "date": "2026-10-31",
+      "uploaded_at": "2026-10-31T19:00:14.883912Z",
+      "video_id": "G0OJacFybY4",
+      "url": "https://youtu.be/G0OJacFybY4",
+      "title": "سورة الحجر كاملة بصوت محمود خليل الحصري | تلاوة هادئة تريح القلب 🤍",
+      "surah_id": 15,
+      "reciter": "ar.husary",
+      "title_template": 0,
+      "style": 4,
+      "palette": 7,
+      "duration_sec": 1355,
+      "audio_mode": "continuous"
     }
   ],
   "used_prompt_ids": [
@@ -360,22 +374,28 @@
     15824,
     15720,
     15773,
-    15787
+    15787,
+    11319,
+    11412,
+    11497,
+    11292,
+    11361,
+    11357
   ],
   "recent_styles": [
-    4,
     6,
     3,
     2,
     5,
-    6
+    6,
+    4
   ],
   "recent_palettes": [
-    8,
     5,
     3,
     2,
     1,
-    5
+    5,
+    7
   ]
 }
