@@ -1,5 +1,5 @@
 {
-  "next_surah": 16,
+  "next_surah": 17,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -196,6 +196,20 @@
       "palette": 7,
       "duration_sec": 1355,
       "audio_mode": "continuous"
+    },
+    {
+      "date": "2026-11-03",
+      "uploaded_at": "2026-11-02T23:02:33.068261Z",
+      "video_id": "F551RaIgbMs",
+      "url": "https://youtu.be/F551RaIgbMs",
+      "title": "سورة النحل كاملة للسكينة والراحة النفسية | مشاري العفاسي",
+      "surah_id": 16,
+      "reciter": "ar.alafasy",
+      "title_template": 6,
+      "style": 1,
+      "palette": 2,
+      "duration_sec": 2534,
+      "audio_mode": "continuous"
     }
   ],
   "used_prompt_ids": [
@@ -380,22 +394,31 @@
     11497,
     11292,
     11361,
-    11357
+    11357,
+    2970,
+    2900,
+    3025,
+    3045,
+    2914,
+    2955,
+    3063,
+    2921,
+    2962
   ],
   "recent_styles": [
-    6,
     3,
     2,
     5,
     6,
-    4
+    4,
+    1
   ],
   "recent_palettes": [
-    5,
     3,
     2,
     1,
     5,
-    7
+    7,
+    2
   ]
 }
