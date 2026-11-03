@@ -48,3 +48,9 @@ created with it on YouTube. You may not sell or commercially license the code
 or derivative software. See the [LICENSE](LICENSE) file for the complete terms.
 
 Copyright (c) 2026 Mohamed Abdalnaby.
+
+## تشغيله على قناة أخرى
+
+المشروع لا يحتوي على وصول ثابت لقناة بعينها. لتشغيله على قناتك، أنشئ OAuth token خاصًا بك بصلاحية YouTube المناسبة، وحوّله إلى Base64، ثم خزّنه في GitHub Actions Secret باسم `TOKEN_BASE64`. استخدم أيضًا Secrets خاصة بك مثل `PEXELS_API_KEY` و`OPENAI_API_KEY` عند الحاجة. لا تضع هذه القيم في الكود أو README أو Issues.
+
+كل تشغيل يستخدم القناة المرتبطة بالتوكن الموجود في ذلك المستودع؛ لا يستطيع مستخدم آخر الوصول إلى قناتك إلا إذا شاركته أنت التوكن نفسه.

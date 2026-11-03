@@ -233,13 +233,22 @@ def fetch_surah(s_id, edition):
     return {"id": s_id, "name": audio["name"], "ayahs": ayahs}
 
 
-def download(url, path, retries=4):
+def download(url, path, retries=4, max_bytes=1024 * 1024 * 1024):
     for attempt in range(1, retries + 1):
         try:
-            with requests.get(url, timeout=60, stream=True) as res:
+            with requests.get(url, timeout=60, stream=True, allow_redirects=False) as res:
                 res.raise_for_status()
+                declared = res.headers.get("Content-Length")
+                if declared and int(declared) > max_bytes:
+                    raise RuntimeError("الملف أكبر من الحد المسموح")
+                total = 0
                 with open(path, "wb") as f:
                     for chunk in res.iter_content(65536):
+                        if not chunk:
+                            continue
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise RuntimeError("الملف تجاوز الحد المسموح")
                         f.write(chunk)
             return
         except Exception:  # noqa: BLE001
@@ -451,7 +460,10 @@ def youtube_authenticate():
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
-    token_data = json.loads(base64.b64decode(os.environ["TOKEN_BASE64"]).decode("utf-8"))
+    token_b64 = os.environ.get("TOKEN_BASE64")
+    if not token_b64:
+        raise RuntimeError("TOKEN_BASE64 غير موجود؛ ضع OAuth الخاص بقناتك في GitHub Secrets.")
+    token_data = json.loads(base64.b64decode(token_b64).decode("utf-8"))
     return build("youtube", "v3", credentials=Credentials.from_authorized_user_info(token_data))
 
 

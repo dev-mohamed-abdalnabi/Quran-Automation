@@ -216,9 +216,28 @@ def safe_wrap(text, width):
     return lines
 
 
+MAX_DOWNLOAD_BYTES = 300 * 1024 * 1024
+
+def download_file_limited(url, path, timeout=60, max_bytes=MAX_DOWNLOAD_BYTES):
+    with requests.get(url, timeout=timeout, stream=True, allow_redirects=False) as response:
+        response.raise_for_status()
+        if response.headers.get("Content-Length") and int(response.headers["Content-Length"]) > max_bytes:
+            raise RuntimeError(f"رفض ملف أكبر من الحد المسموح: {url}")
+        total = 0
+        with open(path, "wb") as out:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > max_bytes:
+                    raise RuntimeError(f"تجاوز الملف الحد المسموح: {url}")
+                out.write(chunk)
+
 def youtube_authenticate():
-    TOKEN_B64 = os.environ.get("TOKEN_BASE64")
-    token_data = json.loads(base64.b64decode(TOKEN_B64).decode('utf-8'))
+    token_b64 = os.environ.get("TOKEN_BASE64")
+    if not token_b64:
+        raise RuntimeError("TOKEN_BASE64 غير موجود؛ ضع OAuth الخاص بقناتك في GitHub Secrets.")
+    token_data = json.loads(base64.b64decode(token_b64).decode('utf-8'))
     creds = Credentials.from_authorized_user_info(token_data)
     return build('youtube', 'v3', credentials=creds)
 
@@ -231,6 +250,8 @@ def fetch_quran_chunk(recent_surah_ids=None):
     attempts = 0
     while True:
         attempts += 1
+        if attempts > 120:
+            raise RuntimeError("تعذر الحصول على بيانات موثوقة بعد 120 محاولة.")
         s_id = random.randint(1, 114)
         # تفادي تكرار نفس السورة في آخر الفيديوهات — بعد محاولات كتير بنسمح بالتكرار
         # عشان الفيديو مايتعلقش لو كل السور القريبة مستبعدة.
@@ -238,14 +259,20 @@ def fetch_quran_chunk(recent_surah_ids=None):
             continue
         try:
             res_audio = requests.get(
-                f"http://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}", timeout=20
-            ).json()['data']
+                f"https://api.alquran.cloud/v1/surah/{s_id}/{AUDIO_EDITION}", timeout=20
+            )
+            res_audio.raise_for_status()
+            res_audio = res_audio.json()['data']
             res_text_ar = requests.get(
-                f"http://api.alquran.cloud/v1/surah/{s_id}/quran-simple", timeout=20
-            ).json()['data']
+                f"https://api.alquran.cloud/v1/surah/{s_id}/quran-simple", timeout=20
+            )
+            res_text_ar.raise_for_status()
+            res_text_ar = res_text_ar.json()['data']
             res_en = requests.get(
-                f"http://api.alquran.cloud/v1/surah/{s_id}/en.sahih", timeout=20
-            ).json()['data']
+                f"https://api.alquran.cloud/v1/surah/{s_id}/en.sahih", timeout=20
+            )
+            res_en.raise_for_status()
+            res_en = res_en.json()['data']
         except Exception:
             continue
 
@@ -272,7 +299,7 @@ def fetch_quran_chunk(recent_surah_ids=None):
             f_path = f"temp_{i}.mp3"
             try:
                 with open(f_path, 'wb') as f:
-                    f.write(requests.get(a_audio['audio'], timeout=30).content)
+                    download_file_limited(a_audio['audio'], f_path, timeout=30, max_bytes=50 * 1024 * 1024)
             except Exception:
                 break
 
@@ -347,6 +374,8 @@ def build_shorts_video(youtube):
 
     print("🎬 [2/4] اختيار خلفية طبيعية...")
     PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
+    if not PEXELS_API_KEY:
+        raise RuntimeError("PEXELS_API_KEY غير موجود في Secrets.")
     headers = {'Authorization': PEXELS_API_KEY}
 
     safe_queries = [
@@ -361,10 +390,12 @@ def build_shorts_video(youtube):
     available_queries = [q for q in safe_queries if q not in recent["bg_queries"]] or safe_queries
     query = random.choice(available_queries)
 
-    v_res = requests.get(
+    v_response = requests.get(
         f'https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=30',
         headers=headers, timeout=20,
-    ).json()
+    )
+    v_response.raise_for_status()
+    v_res = v_response.json()
     videos = v_res.get('videos', [])
     valid_videos = [v for v in videos if v.get('duration', 0) >= dur]
 
@@ -376,8 +407,7 @@ def build_shorts_video(youtube):
         raise Exception("لم يتم العثور على فيديوهات من Pexels!")
 
     v_url = selected_video['video_files'][0]['link']
-    with open("bg_v.mp4", "wb") as f:
-        f.write(requests.get(v_url, timeout=60).content)
+    download_file_limited(v_url, "bg_v.mp4", timeout=60, max_bytes=300 * 1024 * 1024)
 
     print(f"⚙️ [3/4] المونتاج...")
     bg = loop(
