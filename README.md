@@ -39,3 +39,12 @@ python -m unittest test_monitoring.py test_render_profile.py
 | `.github/workflows/daily_quran.yml` | اختيار موعد النشر وتشغيل المهمة اليومية. |
 | `test_monitoring.py` | اختبار سجل النشر والتحقق من حالة فيديوهات القناة. |
 | `test_render_profile.py` | تثبيت مواصفات الرندر التي تحافظ على شكل الفيديو. |
+
+## License
+
+Quran Automation is available under the **Quran Automation Community License**.
+You may use and modify it for non-commercial purposes and monetize videos
+created with it on YouTube. You may not sell or commercially license the code
+or derivative software. See the [LICENSE](LICENSE) file for the complete terms.
+
+Copyright (c) 2026 Mohamed Abdalnaby.
