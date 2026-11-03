@@ -1,56 +1,23 @@
 # Quran Automation
 
-أداة نشر يومية لمقاطع قرآنية قصيرة على YouTube. تختار مجموعة آيات مناسبة، تجمع التلاوة مع خلفية عمودية، ثم تُخرج الفيديو وترفعه بعد التحقق من حالته العامة على القناة.
+## العربية
+أداة تنشئ فيديوهات قرآنية قصيرة وطويلة وتنشرها تلقائيًا على YouTube. تجمع الآيات والتلاوة والخلفية والترجمة، ثم تتحقق من الفيديو بعد الرفع.
 
-## ما الذي يفعله المشروع
+يعمل النشر تلقائيًا من خلال GitHub Actions. ضع OAuth الخاص بقناتك في Secret باسم `TOKEN_BASE64`، ولا تضع أي Token داخل الكود أو Issues. كل مستخدم يشغّل الأداة على القناة المرتبطة بتوكنه هو.
 
-- يختار مقطعًا عشوائيًا من القرآن مع تلاوة من قائمة قرّاء محددة.
-- يبني فيديو عموديًا بدقة `1080×1920` وخلفية طبيعية وترجمة إنجليزية.
-- يحافظ على طول مناسب للـShorts ويضيف انتقالات صوتية قصيرة بين الآيات.
-- يرفع الفيديو إلى YouTube ويتحقق من كونه عامًا وعلى القناة المصادق عليها.
-- يسجل النشر ويراجع الفيديوهات السابقة التي لم تحقق الحد الأدنى من المشاهدات.
+## English
+An automation tool that creates short and long Quran videos and publishes them to YouTube. It combines verses, recitation, backgrounds, and translations, then verifies each upload.
 
-## تشغيل النشر
+Publishing runs through GitHub Actions. Store your own channel OAuth data in the `TOKEN_BASE64` Secret and never place tokens in source code or issues. Each user runs the project on the channel linked to their own token.
 
-يعمل مسار GitHub Actions كل 15 دقيقة داخل نافذة النهار بتوقيت القاهرة، لكنه يختار موعد نشر واحدًا فقط يوميًا. يمكن تشغيله يدويًا من صفحة Actions عند الحاجة.
-
-المفاتيح المطلوبة في Secrets:
-
-```text
-TOKEN_BASE64
-PEXELS_API_KEY
-```
-
-## تثبيت مظهر الفيديو
-
-إعدادات الرندر الحالية هي جزء من هوية القناة: المقاس العمودي، الخطوط المرفقة، موضع النص العربي والإنجليزي، طبقة التعتيم، سرعة الإطارات، ومعدل الترميز. أي تعديل بصري يجب مراجعته على فيديو فعلي قبل دمجه.
-
-## اختبار سريع
-
+## Testing
 ```bash
 python -m unittest test_monitoring.py test_render_profile.py
 ```
 
-## الملفات الأساسية
-
-| الملف | دوره |
-|---|---|
-| `main.py` | جمع الآيات والصوت والخلفية، الرندر، الرفع، وسجل النشر. |
-| `.github/workflows/daily_quran.yml` | اختيار موعد النشر وتشغيل المهمة اليومية. |
-| `test_monitoring.py` | اختبار سجل النشر والتحقق من حالة فيديوهات القناة. |
-| `test_render_profile.py` | تثبيت مواصفات الرندر التي تحافظ على شكل الفيديو. |
-
 ## License
+Quran Automation Community License — see [LICENSE](LICENSE).
 
-Quran Automation is available under the **Quran Automation Community License**.
-You may use and modify it for non-commercial purposes and monetize videos
-created with it on YouTube. You may not sell or commercially license the code
-or derivative software. See the [LICENSE](LICENSE) file for the complete terms.
+You may use and modify the project for non-commercial purposes and monetize videos created with it on YouTube. Selling or commercially licensing the code or derivative software is not permitted.
 
 Copyright (c) 2026 Mohamed Abdalnaby.
-
-## تشغيله على قناة أخرى
-
-المشروع لا يحتوي على وصول ثابت لقناة بعينها. لتشغيله على قناتك، أنشئ OAuth token خاصًا بك بصلاحية YouTube المناسبة، وحوّله إلى Base64، ثم خزّنه في GitHub Actions Secret باسم `TOKEN_BASE64`. استخدم أيضًا Secrets خاصة بك مثل `PEXELS_API_KEY` و`OPENAI_API_KEY` عند الحاجة. لا تضع هذه القيم في الكود أو README أو Issues.
-
-كل تشغيل يستخدم القناة المرتبطة بالتوكن الموجود في ذلك المستودع؛ لا يستطيع مستخدم آخر الوصول إلى قناتك إلا إذا شاركته أنت التوكن نفسه.
