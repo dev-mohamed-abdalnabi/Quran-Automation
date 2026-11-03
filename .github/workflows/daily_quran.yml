@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: daily-quran-auto
+  group: quran-automation-publisher
   cancel-in-progress: false
 
 jobs:
@@ -112,7 +112,7 @@ jobs:
       - name: Install Libraries
         run: |
           pip install --upgrade pip
-          pip install moviepy==1.0.3 Pillow==9.5.0 requests numpy==1.26.4 google-api-python-client google-auth-oauthlib scipy imageio-ffmpeg proglog
+          pip install -r requirements.txt
 
       - name: Run Bot
         env:
