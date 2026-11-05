@@ -1,5 +1,5 @@
 {
-  "next_surah": 17,
+  "next_surah": 18,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -210,6 +210,20 @@
       "palette": 2,
       "duration_sec": 2534,
       "audio_mode": "continuous"
+    },
+    {
+      "date": "2026-11-05",
+      "uploaded_at": "2026-11-05T21:21:25.477838Z",
+      "video_id": "tQgzMd_zX90",
+      "url": "https://youtu.be/tQgzMd_zX90",
+      "title": "تلاوة سورة الإسراء كاملة | محمد صديق المنشاوي | مع الآيات مكتوبة والترجمة",
+      "surah_id": 17,
+      "reciter": "ar.minshawi",
+      "title_template": 3,
+      "style": 9,
+      "palette": 3,
+      "duration_sec": 1923,
+      "audio_mode": "continuous"
     }
   ],
   "used_prompt_ids": [
@@ -403,22 +417,29 @@
     2955,
     3063,
     2921,
-    2962
+    2962,
+    22516,
+    22551,
+    22510,
+    22430,
+    22460,
+    22488,
+    22530
   ],
   "recent_styles": [
-    3,
     2,
     5,
     6,
     4,
-    1
+    1,
+    9
   ],
   "recent_palettes": [
-    3,
     2,
     1,
     5,
     7,
-    2
+    2,
+    3
   ]
 }
