@@ -1,5 +1,5 @@
 {
-  "next_surah": 18,
+  "next_surah": 19,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -224,6 +224,20 @@
       "palette": 3,
       "duration_sec": 1923,
       "audio_mode": "continuous"
+    },
+    {
+      "date": "2026-11-07",
+      "uploaded_at": "2026-11-07T19:16:30.204366Z",
+      "video_id": "qLEbB3Nb2UE",
+      "url": "https://youtu.be/qLEbB3Nb2UE",
+      "title": "سورة الكهف كاملة (33 دقيقة) بصوت مشاري العفاسي 🎧 تلاوة خاشعة",
+      "surah_id": 18,
+      "reciter": "ar.alafasy",
+      "title_template": 1,
+      "style": 6,
+      "palette": 8,
+      "duration_sec": 1999,
+      "audio_mode": "continuous"
     }
   ],
   "used_prompt_ids": [
@@ -424,22 +438,30 @@
     22430,
     22460,
     22488,
-    22530
+    22530,
+    16367,
+    16556,
+    16339,
+    16354,
+    16409,
+    16387,
+    16514,
+    16448
   ],
   "recent_styles": [
-    2,
     5,
     6,
     4,
     1,
-    9
+    9,
+    6
   ],
   "recent_palettes": [
-    2,
     1,
     5,
     7,
     2,
-    3
+    3,
+    8
   ]
 }
