@@ -1,5 +1,5 @@
 {
-  "next_surah": 19,
+  "next_surah": 20,
   "uploads": [
     {
       "date": "2026-09-25",
@@ -238,6 +238,20 @@
       "palette": 8,
       "duration_sec": 1999,
       "audio_mode": "continuous"
+    },
+    {
+      "date": "2026-11-10",
+      "uploaded_at": "2026-11-09T23:42:13.053395Z",
+      "video_id": "J7XFObgvt6A",
+      "url": "https://youtu.be/J7XFObgvt6A",
+      "title": "اسمع سورة مريم كاملة بصوت محمود خليل الحصري 🕊️ تلاوة تريح النفس",
+      "surah_id": 19,
+      "reciter": "ar.husary",
+      "title_template": 2,
+      "style": 2,
+      "palette": 1,
+      "duration_sec": 1487,
+      "audio_mode": "continuous"
     }
   ],
   "used_prompt_ids": [
@@ -446,22 +460,28 @@
     16409,
     16387,
     16514,
-    16448
+    16448,
+    5193,
+    5041,
+    5054,
+    5259,
+    5154,
+    5113
   ],
   "recent_styles": [
-    5,
     6,
     4,
     1,
     9,
-    6
+    6,
+    2
   ],
   "recent_palettes": [
-    1,
     5,
     7,
     2,
     3,
-    8
+    8,
+    1
   ]
 }
